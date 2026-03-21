@@ -4,8 +4,21 @@ const { findAllPermissions, getAllPermissionsSimple } = require('../models/permi
 const { getRolePermissions } = require('../models/userRole.model');
 const { findRoleById } = require('../models/role.model');
 
-const normalizeRoleName = (roleName) => String(roleName || '').trim().toLowerCase().replace(/[_\s]+/g, ' ');
+const normalizeRoleName = (roleName) => {
+  const normalized = String(roleName || '').trim().toLowerCase().replace(/[_\s]+/g, ' ');
+  if (normalized === 'administrator') {
+    return 'admin';
+  }
+  return normalized;
+};
 const isSuperAdminRole = (roleName) => normalizeRoleName(roleName) === 'super admin';
+const getCanonicalRoleName = (roleName) => {
+  const normalized = normalizeRoleName(roleName);
+  if (normalized === 'super admin') return 'Super Admin';
+  if (normalized === 'admin') return 'Admin';
+  if (normalized === 'student') return 'Student';
+  return roleName || null;
+};
 
 // Route Protection Middleware (for authenticated users)
 const protectRoute = async (req, res, next) => {
@@ -93,7 +106,8 @@ const protectRoute = async (req, res, next) => {
       req.user = {
         ...user,
         permissions: allPermissions,
-        role_name: role.name,
+        role: getCanonicalRoleName(role.name),
+        role_name: getCanonicalRoleName(role.name),
         role_description: role.description
       };
       return next();
@@ -126,7 +140,8 @@ const protectRoute = async (req, res, next) => {
       req.user = {
         ...user,
         permissions: mappedPermissions,
-        role_name: role.name,
+        role: getCanonicalRoleName(role.name),
+        role_name: getCanonicalRoleName(role.name),
         role_description: role.description
       };
     } else {
@@ -134,6 +149,7 @@ const protectRoute = async (req, res, next) => {
       req.user = {
         ...user,
         permissions: [],
+        role: null,
         role_name: null,
         role_description: null
       };
@@ -252,7 +268,8 @@ const loginAuthAndPermissions = async (req, res, next) => {
       req.user = {
         ...user,
         permissions: allPermissions,
-        role_name: role.name,
+        role: getCanonicalRoleName(role.name),
+        role_name: getCanonicalRoleName(role.name),
         role_description: role.description
       };
       return next();
@@ -264,7 +281,8 @@ const loginAuthAndPermissions = async (req, res, next) => {
       req.user = {
         ...user,
         permissions: userPermissions,
-        role_name: role.name,
+        role: getCanonicalRoleName(role.name),
+        role_name: getCanonicalRoleName(role.name),
         role_description: role.description
       };
     } else {
@@ -272,6 +290,7 @@ const loginAuthAndPermissions = async (req, res, next) => {
       req.user = {
         ...user,
         permissions: [],
+        role: null,
         role_name: null,
         role_description: null
       };

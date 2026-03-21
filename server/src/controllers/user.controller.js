@@ -20,6 +20,14 @@ const { asyncHandler, ValidationError, NotFoundError, ConflictError } = require(
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 
+const canonicalRoleName = (roleName) => {
+  const normalized = String(roleName || '').trim().toLowerCase().replace(/[_\s]+/g, ' ');
+  if (normalized === 'super admin') return 'Super Admin';
+  if (normalized === 'administrator' || normalized === 'admin') return 'Admin';
+  if (normalized === 'student') return 'Student';
+  return roleName || null;
+};
+
 // Note: Most authentication functions (register, logout, checkAuth) 
 // are handled by NextAuth.js in the frontend
 // But we still need login for NextAuth.js to authenticate against
@@ -90,7 +98,7 @@ const login = asyncHandler(async (req, res) => {
         username: user.username,
         email: user.email,
         role_id: user.role_id,
-        role_name: role ? role.name : null,
+        role_name: role ? canonicalRoleName(role.name) : null,
         role_description: role ? role.description : null,
         permissions: userPermissions,
         is_active: user.is_active,
@@ -147,7 +155,7 @@ const getProfile = asyncHandler(async (req, res) => {
       user: userToSafeObject(user),
       role: role ? {
         id: role.id,
-        name: role.name,
+        name: canonicalRoleName(role.name),
         description: role.description
       } : null,
       permissions: userPermissions
