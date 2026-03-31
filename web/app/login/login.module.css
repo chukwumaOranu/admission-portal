@@ -1,0 +1,172 @@
+.pageShell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(30, 64, 175, 0.14), transparent 28%),
+    linear-gradient(135deg, #f4f7fb 0%, #eef4f1 100%);
+}
+
+.loginFrame {
+  width: min(1160px, 100%);
+  min-height: 680px;
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  background: #ffffff;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.15);
+}
+
+.showcasePanel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 680px;
+  padding: 48px;
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(7, 26, 43, 0.15) 0%, rgba(7, 26, 43, 0.78) 100%),
+    url('/images/login/login-hero.jpg') center/cover no-repeat,
+    linear-gradient(140deg, #0f766e 0%, #1d4ed8 58%, #0f172a 100%);
+}
+
+.showcaseOverlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 40%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.24), transparent 24%);
+}
+
+.showcaseContent {
+  position: relative;
+  z-index: 1;
+  max-width: 520px;
+}
+
+.showcaseBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.showcaseTitle {
+  margin: 22px 0 16px;
+  font-size: clamp(1.8rem, 2.7vw, 2.8rem);
+  line-height: 1.15;
+  font-weight: 800;
+}
+
+.showcaseText {
+  margin: 0 0 28px;
+  font-size: 1.04rem;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.showcaseHighlights {
+  display: grid;
+  gap: 14px;
+}
+
+.highlightCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 30px rgba(7, 26, 43, 0.12);
+}
+
+.highlightCard i {
+  font-size: 1rem;
+  opacity: 0.95;
+}
+
+.highlightCard span {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.formPanel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.formCard {
+  width: min(100%, 420px);
+}
+
+.formTitle {
+  margin: 0 0 8px;
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.formSubtitle {
+  margin: 0;
+  color: #64748b;
+}
+
+.submitButton {
+  min-height: 46px;
+  font-weight: 700;
+}
+
+@media (max-width: 991px) {
+  .loginFrame {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .showcasePanel {
+    min-height: 420px;
+    padding: 40px 28px;
+  }
+
+  .formPanel {
+    padding: 36px 28px 40px;
+  }
+}
+
+@media (max-width: 576px) {
+  .pageShell {
+    padding: 14px;
+  }
+
+  .loginFrame {
+    border-radius: 22px;
+  }
+
+  .showcasePanel {
+    min-height: 360px;
+    padding: 28px 22px;
+  }
+
+  .showcaseTitle {
+    font-size: 1.7rem;
+  }
+
+  .formPanel {
+    padding: 28px 22px 32px;
+  }
+}

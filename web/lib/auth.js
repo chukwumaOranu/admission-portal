@@ -1,6 +1,11 @@
 import NextAuth from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 
+const getApiBaseUrl = () => {
+  const configuredUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+  return configuredUrl.replace(/\/$/, '');
+};
+
 export const authOptions = {
   providers: [
     CredentialsProvider({
@@ -11,7 +16,8 @@ export const authOptions = {
       },
       async authorize(credentials) {
         try {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/login`, {
+          const apiBaseUrl = getApiBaseUrl();
+          const res = await fetch(`${apiBaseUrl}/users/login`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -22,7 +28,18 @@ export const authOptions = {
             }),
           });
 
-          const data = await res.json();
+          const contentType = res.headers.get('content-type') || '';
+          const responseText = await res.text();
+          let data = null;
+
+          if (contentType.includes('application/json')) {
+            data = JSON.parse(responseText);
+          } else {
+            const snippet = responseText.slice(0, 200).replace(/\s+/g, ' ').trim();
+            throw new Error(
+              `Login API returned non-JSON response (${res.status} ${res.statusText}) from ${apiBaseUrl}/users/login: ${snippet}`
+            );
+          }
 
           if (res.ok && data.success && data.data && data.data.user) {
             return {
@@ -36,6 +53,15 @@ export const authOptions = {
               emailVerified: Boolean(data.data.user.email_verified),
             };
           }
+
+          if (!res.ok) {
+            console.error('Login API rejected credentials:', {
+              status: res.status,
+              statusText: res.statusText,
+              body: data
+            });
+          }
+
           return null;
         } catch (error) {
           console.error('NextAuth authorize error:', error);
