@@ -15,8 +15,19 @@ export const getImageUrl = (imagePath) => {
     return imagePath;
   }
   
-  // Get the base URL from environment or default to localhost:5001
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5001';
+  // Normalize the API base so uploads always resolve from the API host, not the frontend host.
+  const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+  let baseUrl = rawApiUrl.trim();
+
+  if (baseUrl.startsWith('.')) {
+    baseUrl = `https://${baseUrl.slice(1)}`;
+  }
+
+  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+    baseUrl = `https://${baseUrl.replace(/^\/+/, '')}`;
+  }
+
+  baseUrl = baseUrl.replace(/\/api\/?$/, '');
   
   // Ensure the path starts with /
   const normalizedPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
