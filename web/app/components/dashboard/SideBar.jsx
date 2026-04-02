@@ -154,7 +154,7 @@ export default function SideBar({ isOpen, onClose }) {
       id: 'exams',
       title: 'Exam Management',
       icon: 'fas fa-clipboard-check',
-      href: '/admin/dashboard/exams',
+      href: '/admin/dashboard/exams/entry-dates',
       permission: 'exam.read',
       children: [
         { title: 'Entry Dates', href: '/admin/dashboard/exams/entry-dates' },
@@ -212,7 +212,7 @@ export default function SideBar({ isOpen, onClose }) {
       id: 'settings',
       title: 'Settings',
       icon: 'fas fa-cog',
-      href: '/admin/dashboard/settings',
+      href: '/admin/dashboard/settings/school',
       permission: 'settings.read',
       children: [
         { 

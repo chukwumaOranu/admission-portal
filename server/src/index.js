@@ -46,6 +46,24 @@ const { errorHandler } = require('./middlewares/error.middleware');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const requiredEnvVars = [
+  'DB_HOST',
+  'DB_PORT',
+  'DB_NAME',
+  'DB_USER',
+  'DB_PASSWORD',
+  'SESSION_SECRET',
+  'JWT_SECRET',
+  'FRONTEND_URL',
+];
+
+const missingEnvVars = requiredEnvVars.filter((name) => !process.env[name]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ Missing required environment variables:', missingEnvVars.join(', '));
+  process.exit(1);
+}
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -100,16 +118,23 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // Session configuration
-const sessionStore = new MySQLStore({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  clearExpired: true,
-  checkExpirationInterval: 900000, // 15 minutes
-  expiration: 60 * 60 * 1000, // 1 hour
-});
+let sessionStore;
+
+try {
+  sessionStore = new MySQLStore({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    clearExpired: true,
+    checkExpirationInterval: 900000, // 15 minutes
+    expiration: 60 * 60 * 1000, // 1 hour
+  });
+} catch (error) {
+  console.error('❌ Failed to initialize session store:', error.message);
+  process.exit(1);
+}
 
 app.use(session({
   key: 'session_cookie_name',
