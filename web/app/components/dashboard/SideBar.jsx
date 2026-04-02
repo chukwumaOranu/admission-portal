@@ -36,10 +36,14 @@ export default function SideBar({ isOpen, onClose }) {
 
   // Fetch school settings when component mounts
   useEffect(() => {
-    if (session && !schoolSettings) {
+    if (session) {
       fetchSchoolSettings();
     }
   }, [session, schoolSettings, fetchSchoolSettings]);
+
+  useEffect(() => {
+    setFailedLogoSrc(null);
+  }, [logoSrc]);
 
   // Auto-close sidebar on mobile only when route actually changes
   useEffect(() => {

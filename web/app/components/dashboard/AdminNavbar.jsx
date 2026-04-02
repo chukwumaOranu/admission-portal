@@ -43,10 +43,14 @@ export default function AdminNavbar({ onToggleSidebar }) {
 
   // Fetch school settings when component mounts
   useEffect(() => {
-    if (status === 'authenticated' && !schoolSettings) {
+    if (status === 'authenticated') {
       fetchSchoolSettings();
     }
   }, [status, schoolSettings, fetchSchoolSettings]);
+
+  useEffect(() => {
+    setFailedLogoSrc(null);
+  }, [logoSrc]);
 
   const notifications = [
     {
