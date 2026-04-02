@@ -86,7 +86,7 @@ export default function AdminNavbar({ onToggleSidebar }) {
     <nav className="navbar navbar-expand-lg navbar-light bg-white shadow-sm border-bottom sticky-top">
       <div className="container-fluid px-3">
         {/* Left Section - Mobile Menu & Brand */}
-        <div className="d-flex align-items-center">
+        <div className="d-flex align-items-center pe-3 pe-lg-4">
           {/* Mobile Menu Button */}
           <button
             className="btn btn-link text-primary d-lg-none me-2 p-2"
@@ -225,7 +225,9 @@ export default function AdminNavbar({ onToggleSidebar }) {
                 {/* User Info Header */}
                 <div className="dropdown-header">
                   <div className="fw-medium">{session?.user?.username || 'User'}</div>
-                  <small className="text-muted">{session?.user?.email || 'user@example.com'}</small>
+                  {session?.user?.email ? (
+                    <small className="text-muted">{session.user.email}</small>
+                  ) : null}
                   {session?.user?.role && (
                     <div className="mt-1">
                       <span className="badge bg-primary text-white small">
@@ -253,51 +255,7 @@ export default function AdminNavbar({ onToggleSidebar }) {
                   <i className="fas fa-cog me-2"></i>
                   Settings
                 </Link>
-                <Link href="/admin/dashboard/help" className="dropdown-item">
-                  <i className="fas fa-question-circle me-2"></i>
-                  Help
-                </Link>
                 <div className="dropdown-divider"></div>
-                
-                {/* User Status Information */}
-                {session?.user && (
-                  <>
-                    <div className="dropdown-item-text px-3 py-2">
-                      <div className="d-flex justify-content-between align-items-center">
-                        <small className="text-muted">Account Status</small>
-                        <span className={`badge ${session.user.isActive ? 'bg-success' : 'bg-danger'} small`}>
-                          {session.user.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="dropdown-item-text px-3 py-2">
-                      <div className="d-flex justify-content-between align-items-center">
-                        <small className="text-muted">Email Status</small>
-                        <span className={`badge ${session.user.emailVerified ? 'bg-success' : 'bg-warning'} small`}>
-                          {session.user.emailVerified ? 'Verified' : 'Pending'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="dropdown-divider"></div>
-                  </>
-                )}
-                
-                {/* Debug Information - Only on desktop */}
-                {!isMobile && (
-                  <>
-                    <div className="dropdown-item-text px-3 py-2">
-                      <small className="text-muted">
-                        <strong>Debug Info:</strong><br/>
-                        Status: {status}<br/>
-                        Session: {session ? 'Active' : 'None'}<br/>
-                        Username: {session?.user?.username || 'N/A'}<br/>
-                        Email: {session?.user?.email || 'N/A'}<br/>
-                        Role: {session?.user?.role || 'N/A'}
-                      </small>
-                    </div>
-                    <div className="dropdown-divider"></div>
-                  </>
-                )}
                 
                 {/* Logout Button */}
                 <button 
