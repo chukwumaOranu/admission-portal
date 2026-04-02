@@ -28,7 +28,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (isClient) {
+    if (isClient && !schoolSettings) {
       const fetchSettings = async () => {
         try {
           await fetchSchoolSettings();
@@ -39,10 +39,6 @@ export default function LoginPage() {
       fetchSettings();
     }
   }, [isClient, schoolSettings, fetchSchoolSettings]);
-
-  useEffect(() => {
-    setFailedLogoSrc(null);
-  }, [logoSrc]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
