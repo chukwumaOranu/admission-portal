@@ -225,11 +225,6 @@ export default function SideBar({ isOpen, onClose }) {
           href: '/admin/dashboard/settings/email',
           permission: 'settings.email'
         },
-        { 
-          title: 'File Uploads', 
-          href: '/admin/dashboard/settings/uploads',
-          permission: 'settings.read'
-        },
         {
           title: 'Letter Templates',
           href: '/admin/dashboard/settings/templates/admission-letter',

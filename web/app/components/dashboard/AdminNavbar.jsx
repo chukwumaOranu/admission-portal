@@ -181,7 +181,7 @@ export default function AdminNavbar({ onToggleSidebar }) {
                   </div>
                 ))}
                 <div className="dropdown-divider"></div>
-                <Link href="/admin/dashboard/notifications" className="dropdown-item text-center">
+                <Link href="/admin/dashboard/applications" className="dropdown-item text-center">
                   View all notifications
                 </Link>
               </div>
@@ -247,11 +247,11 @@ export default function AdminNavbar({ onToggleSidebar }) {
                 <div className="dropdown-divider"></div>
                 
                 {/* Menu Items */}
-                <Link href="/admin/dashboard/profile" className="dropdown-item">
+                <Link href={session?.user?.id ? `/admin/dashboard/users/${session.user.id}` : '/admin/dashboard/users'} className="dropdown-item">
                   <i className="fas fa-user me-2"></i>
                   Profile
                 </Link>
-                <Link href="/admin/dashboard/settings" className="dropdown-item">
+                <Link href="/admin/dashboard/settings/school" className="dropdown-item">
                   <i className="fas fa-cog me-2"></i>
                   Settings
                 </Link>

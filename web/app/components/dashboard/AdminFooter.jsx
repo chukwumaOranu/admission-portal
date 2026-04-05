@@ -77,28 +77,28 @@ export default function AdminFooter() {
                 </button>
                 <ul className="dropdown-menu dropdown-menu-end">
                   <li>
-                    <Link href="/admin/dashboard/help" className="dropdown-item">
-                      <i className="fas fa-question-circle me-2"></i>
-                      Help & Support
+                    <Link href="/admin/dashboard/settings/school" className="dropdown-item">
+                      <i className="fas fa-school me-2"></i>
+                      School Settings
                     </Link>
                   </li>
                   <li>
-                    <Link href="/admin/dashboard/documentation" className="dropdown-item">
-                      <i className="fas fa-book me-2"></i>
-                      Documentation
+                    <Link href="/admin/dashboard/settings/email" className="dropdown-item">
+                      <i className="fas fa-envelope me-2"></i>
+                      Email Settings
                     </Link>
                   </li>
                   <li>
-                    <Link href="/admin/dashboard/feedback" className="dropdown-item">
-                      <i className="fas fa-comment me-2"></i>
-                      Feedback
+                    <Link href="/admin/dashboard/settings/security" className="dropdown-item">
+                      <i className="fas fa-shield-alt me-2"></i>
+                      Security Settings
                     </Link>
                   </li>
                   <li><hr className="dropdown-divider" /></li>
                   <li>
-                    <Link href="/admin/dashboard/version" className="dropdown-item">
-                      <i className="fas fa-info-circle me-2"></i>
-                      Version 1.0.0
+                    <Link href="/admin/dashboard/settings/system" className="dropdown-item">
+                      <i className="fas fa-sliders-h me-2"></i>
+                      System Settings
                     </Link>
                   </li>
                 </ul>

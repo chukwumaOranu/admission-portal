@@ -403,7 +403,7 @@ export default function Dashboard() {
           value={stats.totalDepartments}
           icon="fas fa-building"
           color="secondary"
-          href="/admin/dashboard/departments"
+          href="/admin/dashboard/employees/departments"
           overallLoading={overallLoading}
         />
         <StatCard
@@ -500,7 +500,7 @@ export default function Dashboard() {
                   description="Schedule and manage entry exams"
                   icon="fas fa-clipboard-check"
                   color="warning"
-                  href="/admin/dashboard/exams"
+                  href="/admin/dashboard/exams/entry-dates"
                 />
                 <QuickActionCard
                   title="School Settings"

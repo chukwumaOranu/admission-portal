@@ -9,11 +9,11 @@ export default function DashboardLayout({ children }) {
   const pathname = usePathname();
 
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: 'fas fa-home', href: '/admin/dashboard/student-portal' },
-    { id: 'applications', label: 'Applications', icon: 'fas fa-file-alt', href: '/admin/dashboard/student-portal/applications' },
-    { id: 'payments', label: 'Payments', icon: 'fas fa-credit-card', href: '/admin/dashboard/student-portal/payments' },
-    { id: 'exams', label: 'Exams', icon: 'fas fa-clipboard-check', href: '/admin/dashboard/student-portal/exams' },
-    { id: 'results', label: 'Results', icon: 'fas fa-poll', href: '/admin/dashboard/student-portal/results' },
+    { id: 'overview', label: 'Overview', icon: 'fas fa-home', href: '/admin/dashboard' },
+    { id: 'applications', label: 'Applications', icon: 'fas fa-file-alt', href: '/admin/dashboard/applications' },
+    { id: 'payments', label: 'Payments', icon: 'fas fa-credit-card', href: '/admin/dashboard/payments' },
+    { id: 'exams', label: 'Exams', icon: 'fas fa-clipboard-check', href: '/admin/dashboard/exams/entry-dates' },
+    { id: 'results', label: 'Results', icon: 'fas fa-poll', href: '/admin/dashboard/applications/admission' },
   ];
 
   return (
