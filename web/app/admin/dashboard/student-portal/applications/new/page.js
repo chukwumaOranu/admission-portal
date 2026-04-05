@@ -21,6 +21,7 @@ export default function NewApplicationPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [profileChecked, setProfileChecked] = useState(false);
   
   const [formData, setFormData] = useState({});
   const [uploadedFiles, setUploadedFiles] = useState({});
@@ -49,47 +50,28 @@ export default function NewApplicationPage() {
       const fieldsData = fieldsResponse.data?.fields || fieldsResponse.data || [];
       setFields(fieldsData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0)));
       
-      // Try to find student in Redux store first
-      const currentStudent = students.find(s => s.email === session?.user?.email);
-      if (currentStudent) {
-        setStudentProfile(currentStudent);
-        // Pre-fill basic info from student profile
-        setFormData({
-          applicant_name: `${currentStudent.first_name} ${currentStudent.last_name}`,
-          applicant_email: currentStudent.email,
-          applicant_phone: currentStudent.phone || '',
-          date_of_birth: currentStudent.date_of_birth ? currentStudent.date_of_birth.split('T')[0] : '',
-          gender: currentStudent.gender || '',
-          address: currentStudent.address || '',
-          city: currentStudent.city || '',
-          state: currentStudent.state || '',
-          country: currentStudent.country || 'Nigeria',
-          guardian_name: currentStudent.guardian_name || '',
-          guardian_phone: currentStudent.guardian_phone || '',
-          guardian_email: currentStudent.guardian_email || ''
-        });
-      } else {
-        // If not found in Redux, fetch from API
-        const profileResponse = await apiService.get(API_ENDPOINTS.STUDENTS.GET_ME);
-        const studentData = profileResponse.data || profileResponse;
-        setStudentProfile(studentData);
-        
-        // Pre-fill basic info from student profile
-        setFormData({
-          applicant_name: `${studentData.first_name} ${studentData.last_name}`,
-          applicant_email: studentData.email,
-          applicant_phone: studentData.phone || '',
-          date_of_birth: studentData.date_of_birth ? studentData.date_of_birth.split('T')[0] : '',
-          gender: studentData.gender || '',
-          address: studentData.address || '',
-          city: studentData.city || '',
-          state: studentData.state || '',
-          country: studentData.country || 'Nigeria',
-          guardian_name: studentData.guardian_name || '',
-          guardian_phone: studentData.guardian_phone || '',
-          guardian_email: studentData.guardian_email || ''
-        });
-      }
+      // Always fetch a fresh student profile here so the profile photo
+      // requirement does not rely on stale Redux state after uploads.
+      const profileResponse = await apiService.get(API_ENDPOINTS.STUDENTS.GET_ME);
+      const studentData = profileResponse.data || profileResponse;
+      setStudentProfile(studentData);
+      setProfileChecked(true);
+
+      // Pre-fill basic info from student profile
+      setFormData({
+        applicant_name: `${studentData.first_name} ${studentData.last_name}`,
+        applicant_email: studentData.email,
+        applicant_phone: studentData.phone || '',
+        date_of_birth: studentData.date_of_birth ? studentData.date_of_birth.split('T')[0] : '',
+        gender: studentData.gender || '',
+        address: studentData.address || '',
+        city: studentData.city || '',
+        state: studentData.state || '',
+        country: studentData.country || 'Nigeria',
+        guardian_name: studentData.guardian_name || '',
+        guardian_phone: studentData.guardian_phone || '',
+        guardian_email: studentData.guardian_email || ''
+      });
       
     } catch (err) {
       console.error('❌ Error fetching data:', err);
@@ -118,7 +100,7 @@ export default function NewApplicationPage() {
   }, [status, students.length, fetchStudents]);
 
   useEffect(() => {
-    if (studentProfile && !studentProfile.profile_photo) {
+    if (profileChecked && studentProfile && !studentProfile.profile_photo) {
       const redirect = () => {
         alert('Profile photo is required for exam card generation. Please upload your profile photo first.');
         router.push('/admin/dashboard/student-portal/profile/edit?redirect=/admin/dashboard/student-portal/applications/new?schema=' + schemaId);
@@ -127,7 +109,7 @@ export default function NewApplicationPage() {
       const timer = setTimeout(redirect, 100);
       return () => clearTimeout(timer);
     }
-  }, [studentProfile, schemaId, router]);
+  }, [profileChecked, studentProfile, schemaId, router]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
