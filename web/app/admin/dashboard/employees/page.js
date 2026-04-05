@@ -645,7 +645,7 @@ Status: ${user.is_active ? 'Active' : 'Inactive'}`;
                     <th>Position</th>
                     <th>Status</th>
                     <th>Login Status</th>
-                    <th>Actions</th>
+                    <th className="mobile-action-column">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -656,6 +656,51 @@ Status: ${user.is_active ? 'Active' : 'Inactive'}`;
                       </td>
                       <td>
                         {employee.first_name} {employee.last_name}
+                        <div className="mobile-inline-actions d-md-none">
+                          {!employee.user_id && employee.email && hasPermission('user.create') && (
+                            <button
+                              className="btn btn-outline-success btn-sm"
+                              onClick={() => handleCreateLogin(employee)}
+                              title="Create Login"
+                            >
+                              <i className="fas fa-user-plus me-1"></i>
+                              Login
+                            </button>
+                          )}
+                          {hasPermission('employee.update') && (
+                            <Link
+                              href={`/admin/dashboard/employees/${employee.id}/edit`}
+                              className="btn btn-outline-primary btn-sm"
+                              title="Edit"
+                            >
+                              <i className="fas fa-edit me-1"></i>
+                              Edit
+                            </Link>
+                          )}
+                          <Link
+                            href={`/admin/dashboard/employees/${employee.id}`}
+                            className="btn btn-outline-info btn-sm"
+                            title="View"
+                          >
+                            <i className="fas fa-eye me-1"></i>
+                            View
+                          </Link>
+                          {hasPermission('employee.delete') && (
+                            <button
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => handleDeleteEmployee(employee.id)}
+                              disabled={deleteLoading === employee.id}
+                              title="Delete"
+                            >
+                              {deleteLoading === employee.id ? (
+                                <i className="fas fa-spinner fa-spin me-1"></i>
+                              ) : (
+                                <i className="fas fa-trash me-1"></i>
+                              )}
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td>{employee.email || 'N/A'}</td>
                       <td>{employee.department_name || employee.department || 'Unassigned'}</td>
@@ -668,7 +713,7 @@ Status: ${user.is_active ? 'Active' : 'Inactive'}`;
                       <td>
                         {getLoginStatusBadge(employee)}
                       </td>
-                      <td>
+                      <td className="mobile-action-column">
                         <div className="btn-group btn-group-sm" role="group">
                           {!employee.user_id && employee.email && hasPermission('user.create') && (
                             <button

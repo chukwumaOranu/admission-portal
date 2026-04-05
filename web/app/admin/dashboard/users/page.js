@@ -361,7 +361,7 @@ export default function UsersPage() {
                     <th>Role</th>
                     <th>Status</th>
                     <th>Created</th>
-                    <th>Actions</th>
+                    <th className="mobile-action-column">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -378,6 +378,36 @@ export default function UsersPage() {
                       <td>{user.id}</td>
                       <td>
                         <strong>{user.username}</strong>
+                        <div className="mobile-inline-actions d-md-none">
+                          <Link
+                            href={`/admin/dashboard/users/${user.id}`}
+                            className="btn btn-outline-info btn-sm"
+                            title="View"
+                          >
+                            <i className="fas fa-eye me-1"></i>
+                            View
+                          </Link>
+                          {hasPermission('user.update') && (
+                            <Link
+                              href={`/admin/dashboard/users/${user.id}/edit`}
+                              className="btn btn-outline-primary btn-sm"
+                              title="Edit"
+                            >
+                              <i className="fas fa-edit me-1"></i>
+                              Edit
+                            </Link>
+                          )}
+                          {hasPermission('user.delete') && (
+                            <button
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => handleDelete(user.id)}
+                              title="Delete"
+                            >
+                              <i className="fas fa-trash me-1"></i>
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td>{user.email}</td>
                       <td>
@@ -393,7 +423,7 @@ export default function UsersPage() {
                         </span>
                       </td>
                       <td>{new Date(user.created_at).toLocaleDateString()}</td>
-                      <td>
+                      <td className="mobile-action-column">
                         <div className="btn-group btn-group-sm" role="group">
                           <Link
                             href={`/admin/dashboard/users/${user.id}`}

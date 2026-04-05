@@ -115,3 +115,81 @@ body {
     padding: 0.5rem;
   }
 }
+
+@media (max-width: 767.98px) {
+  .table-responsive {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    border: 1px solid rgba(13, 110, 253, 0.12);
+    border-radius: 0.85rem;
+    background-color: #fff;
+  }
+
+  .table-responsive > .table {
+    min-width: 720px;
+    margin-bottom: 0;
+  }
+
+  .table-responsive > .table th,
+  .table-responsive > .table td {
+    padding: 0.7rem 0.85rem;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  .table-responsive > .table thead th:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 3;
+    background: #f8f9fa;
+    box-shadow: -10px 0 14px -14px rgba(15, 23, 42, 0.55);
+  }
+
+  .table-responsive > .table tbody td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: -10px 0 14px -14px rgba(15, 23, 42, 0.55);
+  }
+
+  .table-responsive > .table tbody tr:hover td:last-child {
+    background: #f8fbff;
+  }
+
+  .table-responsive > .table .btn-group,
+  .table-responsive > .table .btn-group-sm {
+    flex-wrap: nowrap;
+  }
+
+  .table-responsive > .table .btn-group > .btn,
+  .table-responsive > .table .btn-group-sm > .btn {
+    white-space: nowrap;
+  }
+
+  .table-responsive > .table .badge {
+    white-space: nowrap;
+  }
+
+  .mobile-action-column {
+    display: none;
+  }
+
+  .mobile-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .mobile-inline-actions .btn,
+  .mobile-inline-actions a.btn {
+    min-height: 36px;
+    min-width: auto;
+  }
+}

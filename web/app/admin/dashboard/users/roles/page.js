@@ -414,7 +414,7 @@ export default function UserRolesPage() {
                     <th>Email</th>
                     <th>Current Role</th>
                     <th>Status</th>
-                    <th>Actions</th>
+                    <th className="mobile-action-column">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -432,6 +432,18 @@ export default function UserRolesPage() {
                         </td>
                         <td>
                           <strong>{user.username}</strong>
+                          <div className="mobile-inline-actions d-md-none">
+                            <button
+                              className="btn btn-sm btn-outline-primary"
+                              onClick={() => {
+                                setSelectedUser(user.id.toString());
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              }}
+                            >
+                              <i className="fas fa-user-tag me-1"></i>
+                              Assign
+                            </button>
+                          </div>
                         </td>
                         <td>{user.email}</td>
                         <td>
@@ -456,7 +468,7 @@ export default function UserRolesPage() {
                             {user.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </td>
-                        <td>
+                        <td className="mobile-action-column">
                           <button
                             className="btn btn-sm btn-outline-primary"
                             onClick={() => {

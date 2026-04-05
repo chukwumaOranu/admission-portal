@@ -336,7 +336,7 @@ export default function ApplicationsPage() {
                     <th>Payment</th>
                     <th>Submitted</th>
                     <th>Updated</th>
-                    <th>Actions</th>
+                    <th className="mobile-action-column">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -359,6 +359,44 @@ export default function ApplicationsPage() {
                         <div className="d-flex align-items-center">
                           <i className="fas fa-user text-info me-2"></i>
                           <strong>{application.applicant_name || 'Unknown Applicant'}</strong>
+                        </div>
+                        <div className="mobile-inline-actions d-md-none">
+                          <Link 
+                            href={`/admin/dashboard/applications/${application.id}`}
+                            className="btn btn-outline-primary btn-sm"
+                            title="View Details"
+                          >
+                            <i className="fas fa-eye me-1"></i>
+                            View
+                          </Link>
+                          <button 
+                            className="btn btn-outline-info btn-sm"
+                            onClick={() => handleDownloadApplication(application.id)}
+                            title="Download Application"
+                          >
+                            <i className="fas fa-download me-1"></i>
+                            Download
+                          </button>
+                          {hasPermission('application.update') && application.status === 'draft' && (
+                            <Link 
+                              href={`/admin/dashboard/applications/${application.id}/edit`}
+                              className="btn btn-outline-warning btn-sm"
+                              title="Edit Application"
+                            >
+                              <i className="fas fa-edit me-1"></i>
+                              Edit
+                            </Link>
+                          )}
+                          {hasPermission('application.delete') && (
+                            <button 
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => handleDeleteApplication(application.id)}
+                              title="Delete Application"
+                            >
+                              <i className="fas fa-trash me-1"></i>
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td>
@@ -391,7 +429,7 @@ export default function ApplicationsPage() {
                           }
                         </small>
                       </td>
-                      <td>
+                      <td className="mobile-action-column">
                         <div className="btn-group" role="group">
                           <Link 
                             href={`/admin/dashboard/applications/${application.id}`}

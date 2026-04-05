@@ -852,7 +852,7 @@ Status: ${user.is_active ? 'Active' : 'Inactive'}`;
                     <th>Gender</th>
                     <th>Status</th>
                     <th>Login Status</th>
-                    <th>Actions</th>
+                    <th className="mobile-action-column">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -871,6 +871,51 @@ Status: ${user.is_active ? 'Active' : 'Inactive'}`;
                       </td>
                       <td>
                         {student.first_name} {student.last_name}
+                        <div className="mobile-inline-actions d-md-none">
+                          {!student.user_id && student.email && hasPermission('user.create') && (
+                            <button
+                              className="btn btn-outline-success btn-sm"
+                              onClick={() => handleCreateLogin(student)}
+                              title="Create Login"
+                            >
+                              <i className="fas fa-user-plus me-1"></i>
+                              Login
+                            </button>
+                          )}
+                          {hasPermission('student.update') && (
+                            <Link
+                              href={`/admin/dashboard/students/${student.id}/edit`}
+                              className="btn btn-outline-primary btn-sm"
+                              title="Edit"
+                            >
+                              <i className="fas fa-edit me-1"></i>
+                              Edit
+                            </Link>
+                          )}
+                          <Link
+                            href={`/admin/dashboard/students/${student.id}`}
+                            className="btn btn-outline-info btn-sm"
+                            title="View"
+                          >
+                            <i className="fas fa-eye me-1"></i>
+                            View
+                          </Link>
+                          {hasPermission('student.delete') && (
+                            <button
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => handleDeleteStudent(student.id)}
+                              disabled={deleteLoading === student.id}
+                              title="Delete"
+                            >
+                              {deleteLoading === student.id ? (
+                                <i className="fas fa-spinner fa-spin me-1"></i>
+                              ) : (
+                                <i className="fas fa-trash me-1"></i>
+                              )}
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td>{student.email}</td>
                       <td>{student.phone || 'N/A'}</td>
@@ -889,7 +934,7 @@ Status: ${user.is_active ? 'Active' : 'Inactive'}`;
                       <td>
                         {getLoginStatusBadge(student)}
                       </td>
-                      <td>
+                      <td className="mobile-action-column">
                         <div className="btn-group btn-group-sm" role="group">
                           {!student.user_id && student.email && hasPermission('user.create') && (
                             <button

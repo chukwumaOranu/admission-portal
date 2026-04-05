@@ -411,7 +411,7 @@ const PaymentsPage = () => {
                     <th>Status</th>
                     <th>Paid At</th>
                     <th>Created</th>
-                    <th>Actions</th>
+                    <th className="mobile-action-column">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -419,6 +419,38 @@ const PaymentsPage = () => {
                     <tr key={payment.id}>
                       <td>
                         <strong>{payment.transaction_reference}</strong>
+                        <div className="mobile-inline-actions d-md-none">
+                          <button 
+                            className="btn btn-sm btn-outline-primary"
+                            onClick={() => handleViewPayment(payment)}
+                          >
+                            <i className="fas fa-eye me-1"></i>
+                            Receipt
+                          </button>
+                          {payment.payment_status === 'pending' && hasPermission('payment.update') && (
+                            <button
+                              className="btn btn-sm btn-outline-success"
+                              onClick={async () => {
+                                try {
+                                  setVerifyLoading(true);
+                                  await verifyPayment(payment.transaction_reference);
+                                  setMessage('Payment verified successfully!');
+                                  setTimeout(() => setMessage(''), 3000);
+                                } catch (error) {
+                                  console.error('Error verifying payment:', error);
+                                  setMessage('Failed to verify payment. Please try again.');
+                                  setTimeout(() => setMessage(''), 5000);
+                                } finally {
+                                  setVerifyLoading(false);
+                                }
+                              }}
+                              disabled={verifyLoading}
+                            >
+                              <i className="fas fa-check me-1"></i>
+                              Verify
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td>Applicant #{payment.applicant_id}</td>
                       <td>₦{payment.amount}</td>
@@ -438,7 +470,7 @@ const PaymentsPage = () => {
                         }
                       </td>
                       <td>{new Date(payment.created_at).toLocaleDateString()}</td>
-                      <td>
+                      <td className="mobile-action-column">
                         <div className="btn-group" role="group">
                           <button 
                             className="btn btn-sm btn-outline-primary"
