@@ -33,7 +33,7 @@ export default function PayApplicationFeePage() {
       
       // If not found, fetch from API
       const response = await apiService.get(API_ENDPOINTS.APPLICATIONS.GET_BY_ID(params.id));
-      setApplication(response.data);
+      setApplication(response?.data || response);
     } catch (err) {
       console.error('Error fetching application:', err);
       setError('Failed to load application details');
@@ -123,14 +123,14 @@ export default function PayApplicationFeePage() {
         // showPaystackModal(authorizationUrl);
         
       } else {
-        console.log('❌ No authorization URL found in response:', paymentResult);
+        console.log('❌ No authorization URL found in response:', response);
         setError('Failed to initialize payment. Please try again.');
         setPaying(false);
       }
       
     } catch (err) {
       console.error('❌ Payment error:', err);
-      setError(err.response?.data?.message || 'Failed to initialize payment');
+      setError(err?.message || err?.data?.message || 'Failed to initialize payment');
     } finally {
       setPaying(false);
     }

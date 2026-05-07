@@ -3,11 +3,11 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./app/*"]
-    }
+    },
+    "jsx": "preserve"
   },
   "include": [
-    "app/**/*",
-    "next.config.mjs"
+    "app/**/*"
   ],
   "exclude": [
     "node_modules"
