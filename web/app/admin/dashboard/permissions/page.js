@@ -1,159 +1,172 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { usePermissions } from '@/hooks/usePermissions';
 import { usePermissionsData } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
 
 export default function PermissionsPage() {
-  const { status } = useSession();
-  
-  // ✅ Redux - Simple!
+  const { data: session, status } = useSession();
+  const { hasPermission, loading: permLoading } = usePermissions();
   const { permissions, loading, error, fetchPermissions } = usePermissionsData();
+  const loadedRef = useRef(false);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchPermissions();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchPermissions();
     }
-  }, [status, fetchPermissions]);
+  }, [status, session?.user?.id, fetchPermissions]);
 
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
-  }
+  const groups = permissions.reduce((acc, p) => {
+    const key = p.resource || 'general';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(p);
+    return acc;
+  }, {});
+
+  const resources = Object.keys(groups).sort();
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-key text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#ede9fe', color: '#7c3aed' }}><i className="fas fa-key" /></span>
             Permissions
-          </h2>
-          <p className="text-muted mb-0">Manage system permissions</p>
+          </h1>
+          <p className={s.pageSub}>System-level permissions grouped by resource</p>
         </div>
-        <Link href="/admin/dashboard/permissions/add" className="btn btn-primary-custom">
-          <i className="fas fa-plus me-2"></i>
-          Add Permission
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/rolePermissions" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-link" />Role Assignments
+          </Link>
+          {hasPermission('permission.create') && (
+            <Link href="/admin/dashboard/permissions/add" className={`${s.btn} ${s.btnPrimary}`}>
+              <i className="fas fa-plus" />Add Permission
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
 
-      {/* Stats Card */}
-      <div className="row mb-4">
-        <div className="col-md-3">
-          <div className="stats-card">
-            <div className="d-flex justify-content-between">
-              <div>
-                <p className="stats-label">Total Permissions</p>
-                <h3 className="stats-number">{permissions.length}</h3>
-              </div>
-              <i className="fas fa-key text-primary fs-1 opacity-75"></i>
+      {/* Stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total',     value: permissions.length,   icon: 'fas fa-key',       color: '#7c3aed' },
+          { label: 'Resources', value: resources.length,     icon: 'fas fa-folder',    color: '#0891b2' },
+          { label: 'Read',      value: permissions.filter(p => p.action === 'read').length,   icon: 'fas fa-eye',       color: '#059669' },
+          { label: 'Write',     value: permissions.filter(p => ['create','update','delete'].includes(p.action)).length, icon: 'fas fa-edit', color: '#d97706' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
             </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Permissions List */}
       {loading ? (
-        <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
+        <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+      ) : permissions.length === 0 ? (
+        <div className={s.card}>
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#ede9fe', color: '#7c3aed' }}><i className="fas fa-key" /></div>
+            <div className={s.emptyTitle}>No Permissions Yet</div>
+            <p className={s.emptySub}>Create your first permission to define access controls.</p>
+            {hasPermission('permission.create') && (
+              <Link href="/admin/dashboard/permissions/add" className={`${s.btn} ${s.btnPrimary}`}><i className="fas fa-plus" />Add Permission</Link>
+            )}
           </div>
-          <p className="mt-3 text-muted">Loading permissions...</p>
         </div>
       ) : (
-        <div className="row">
-          {permissions.map((permission) => (
-            <div key={permission.id} className="col-md-6 col-lg-4 mb-3">
-              <div className="card card-custom h-100">
-                <div className="card-body">
-                  <div className="d-flex justify-content-between align-items-start mb-2">
-                    <h6 className="card-title mb-0">{permission.name}</h6>
-                    <span className="badge bg-success">Active</span>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <div className="d-flex align-items-center mb-2">
-                      <i className="fas fa-folder text-info me-2"></i>
-                      <span>{permission.resource || 'N/A'}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {resources.map(resource => (
+            <div key={resource} className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <i className="fas fa-folder" style={{ color: '#0891b2' }} />
+                  <span style={{ textTransform: 'capitalize' }}>{resource}</span>
+                  <span className={`${s.badge} ${s.badgeInfo}`} style={{ marginLeft: '0.5rem' }}>{groups[resource].length}</span>
+                </span>
+              </div>
+
+              {/* Desktop table */}
+              <div className={s.tableWrap}>
+                <table className={s.table}>
+                  <thead>
+                    <tr>
+                      <th style={{ paddingLeft: '1.25rem' }}>Name</th>
+                      <th>Action</th>
+                      <th>Description</th>
+                      <th>Created</th>
+                      <th style={{ paddingRight: '1.25rem' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups[resource].map(perm => (
+                      <tr key={perm.id}>
+                        <td style={{ paddingLeft: '1.25rem' }}>
+                          <span className={s.tdName}>{perm.name}</span>
+                        </td>
+                        <td>
+                          <span className={`${s.badge} ${
+                            perm.action === 'read'   ? s.badgeInfo :
+                            perm.action === 'create' ? s.badgeActive :
+                            perm.action === 'update' ? s.badgeSubmitted :
+                            perm.action === 'delete' ? s.badgeFailed :
+                            s.badgeDraft
+                          }`}>{perm.action || '—'}</span>
+                        </td>
+                        <td><span style={{ fontSize: '0.82rem', color: '#6b7280' }}>{perm.description || <em style={{ color: '#d1d5db' }}>No description</em>}</span></td>
+                        <td><span style={{ fontSize: '0.8rem', color: '#374151' }}>{perm.created_at ? new Date(perm.created_at).toLocaleDateString() : '—'}</span></td>
+                        <td className={s.actionsCell} style={{ paddingRight: '1.25rem' }}>
+                          <div className={s.actionBtns}>
+                            {hasPermission('permission.update') && (
+                              <Link href={`/admin/dashboard/permissions/edit/${perm.id}`} className={s.btnIcon} title="Edit">
+                                <i className="fas fa-edit" />
+                              </Link>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile cards */}
+              <div className={s.mobileList}>
+                {groups[resource].map(perm => (
+                  <div key={perm.id} className={s.mobileCard}>
+                    <div className={s.mobileCardHead}>
+                      <span className={s.tdName}>{perm.name}</span>
+                      <span className={`${s.badge} ${perm.action === 'read' ? s.badgeInfo : perm.action === 'create' ? s.badgeActive : perm.action === 'delete' ? s.badgeFailed : s.badgeSubmitted}`}>{perm.action || '—'}</span>
                     </div>
-                    <div className="d-flex align-items-center mb-2">
-                      <i className="fas fa-cog text-warning me-2"></i>
-                      <span>{permission.action || 'N/A'}</span>
+                    <div className={s.mobileCardBody}>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Description</span><span className={s.mobileCardVal}>{perm.description || '—'}</span></div>
                     </div>
-                    {permission.description && (
-                      <p className="small text-muted mb-0">{permission.description}</p>
+                    {hasPermission('permission.update') && (
+                      <div className={s.mobileCardFoot}>
+                        <Link href={`/admin/dashboard/permissions/edit/${perm.id}`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}><i className="fas fa-edit" />Edit</Link>
+                      </div>
                     )}
                   </div>
-                  
-                  <div className="small text-muted mb-3">
-                    <i className="fas fa-calendar me-1"></i>
-                    Created: {new Date(permission.created_at).toLocaleDateString()}
-                  </div>
-                  
-                  <div className="d-flex gap-2">
-                    <Link 
-                      href={`/admin/dashboard/permissions/edit/${permission.id}`}
-                      className="btn btn-outline-primary btn-sm"
-                    >
-                      <i className="fas fa-edit me-1"></i> Edit
-                    </Link>
-                    <button 
-                      className="btn btn-outline-danger btn-sm"
-                      onClick={() => {
-                        if (window.confirm('Are you sure you want to delete this permission?')) {
-                          console.log('Delete permission:', permission.id);
-                        }
-                      }}
-                    >
-                      <i className="fas fa-trash me-1"></i> Delete
-                    </button>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && permissions.length === 0 && (
-        <div className="text-center py-5">
-          <i className="fas fa-key text-muted fs-1 mb-3"></i>
-          <h5 className="text-muted">No permissions found</h5>
-          <p className="text-muted">Create your first permission to get started.</p>
-          <Link href="/admin/dashboard/permissions/add" className="btn btn-primary-custom">
-            <i className="fas fa-plus me-2"></i>
-            Add Permission
-          </Link>
         </div>
       )}
     </div>

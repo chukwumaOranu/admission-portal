@@ -1,272 +1,201 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
+
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const daysSince = (d) => d ? Math.floor((Date.now() - new Date(d)) / 86400000) : 0;
+const initials = (name) => (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
 export default function ApprovedApplicationsPage() {
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state and actions
-  const {
-    applications: allApplications,
-    loading,
-    error,
-    fetchApplications,
-    updateApplicationStatus,
-    sendAcceptanceLetter,
-    generateAdmissionLetter
-  } = useApplications();
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { applications: all, loading, error, fetchApplications, updateApplicationStatus, sendAcceptanceLetter } = useApplications();
+  const [search, setSearch] = useState('');
+  const [notice, setNotice] = useState('');
+  const loadedRef = useRef(false);
 
-  // Filter for approved applications
-  const applications = allApplications.filter(app => app.status === 'approved');
+  const applications = all.filter(a => a.status === 'approved');
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      fetchApplications();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchApplications();
     }
-  }, [status, session?.user?.id, session?.accessToken, fetchApplications]);
+  }, [status, session?.user?.id, fetchApplications]);
 
-  const handleSendAcceptanceLetter = async (applicationId) => {
-    try {
-      await sendAcceptanceLetter(applicationId);
-      alert('Acceptance letter sent successfully!');
-    } catch (error) {
-      console.error('Error sending acceptance letter:', error);
-      alert('Failed to send acceptance letter');
-    }
+  const filtered = applications.filter(a => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return [a.applicant_name, a.applicant_email, a.application_number].filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
+
+  const thisWeek     = applications.filter(a => daysSince(a.updated_at || a.created_at) <= 7).length;
+  const pendingLetters = applications.filter(a => !a.acceptance_letter_sent).length;
+
+  const handleSendLetter = (id) => {
+    sendAcceptanceLetter(id);
+    setNotice('Acceptance letter queued for sending.');
   };
 
-  const handleGenerateAdmissionLetter = async (applicationId) => {
-    try {
-      const result = await generateAdmissionLetter(applicationId);
-      // Handle file download
-      const blob = result.payload.blob;
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `admission-letter-${applicationId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Error generating admission letter:', error);
-      alert('Failed to generate admission letter');
-    }
+  const handleRevoke = (id) => {
+    if (!window.confirm('Revoke approval and move back to pending?')) return;
+    updateApplicationStatus(id, 'pending');
+    setNotice('Approval revoked. Application moved back to pending.');
   };
 
-  const handleRevokeApproval = async (applicationId) => {
-    if (window.confirm('Are you sure you want to revoke the approval for this application?')) {
-      const reason = prompt('Please provide a reason for revoking approval:');
-      if (reason) {
-        try {
-          await updateApplicationStatus(applicationId, 'pending', reason);
-          alert('Approval revoked successfully!');
-        } catch (error) {
-          console.error('Error revoking approval:', error);
-          alert('Failed to revoke approval');
-        }
-      }
-    }
-  };
-
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
+  if (status === 'loading' || permLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="approved-applications-page">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-check-circle text-success me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#d1fae5', color: '#059669' }}><i className="fas fa-check-circle" /></span>
             Approved Applications
-          </h2>
-          <p className="text-muted mb-0">Manage approved applications and send acceptance letters</p>
+          </h1>
+          <p className={s.pageSub}>Manage approvals and send acceptance letters</p>
         </div>
-        <div className="d-flex gap-2">
-          <Link href="/admin/dashboard/applications" className="btn btn-outline-primary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Applications
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Applications
           </Link>
-          <button 
-            className="btn btn-primary"
-            onClick={fetchApplications}
-            disabled={loading}
-          >
-            <i className="fas fa-sync me-2"></i>
-            Refresh
+          <button onClick={fetchApplications} className={`${s.btn} ${s.btnOutline}`} disabled={loading}>
+            <i className="fas fa-sync" />Refresh
           </button>
         </div>
       </div>
 
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
 
-      {/* Approved Applications */}
-      <div className="card">
-        <div className="card-header">
-          <h5 className="mb-0">
-            <i className="fas fa-list me-2"></i>
-            Approved Applications ({applications.length})
-          </h5>
+      {/* Stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total Approved',   value: applications.length, icon: 'fas fa-check-circle', color: '#059669' },
+          { label: 'This Week',        value: thisWeek,            icon: 'fas fa-calendar-week',color: '#0891b2' },
+          { label: 'Letters Pending',  value: pendingLetters,      icon: 'fas fa-envelope',     color: '#d97706' },
+          { label: 'Letters Sent',     value: applications.filter(a => a.acceptance_letter_sent).length, icon: 'fas fa-paper-plane', color: '#7c3aed' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
+            </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
+          </div>
+        ))}
+      </div>
+
+      {/* Table card */}
+      <div className={s.card} style={{ marginBottom: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', padding: '0.875rem 1.25rem', borderBottom: '1px solid #f0f4f8' }}>
+          <span className={s.cardTitle}><i className="fas fa-list" style={{ color: '#059669' }} />Approved ({filtered.length})</span>
+          <div className={s.searchWrap} style={{ maxWidth: 240 }}>
+            <i className={`fas fa-search ${s.searchIcon}`} />
+            <input className={s.searchInput} placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
         </div>
-        <div className="card-body">
-          {loading ? (
-            <div className="text-center py-4">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
-              </div>
-            </div>
-          ) : applications.length === 0 ? (
-            <div className="text-center py-4">
-              <i className="fas fa-inbox text-muted fs-1 mb-3"></i>
-              <h5 className="text-muted">No Approved Applications</h5>
-              <p className="text-muted">No applications have been approved yet.</p>
-            </div>
-          ) : (
-            <div className="row">
-              {applications.map(application => (
-                <div key={application.id} className="col-md-6 col-lg-4 mb-4">
-                  <div className="card h-100 border-success">
-                    <div className="card-header bg-success text-white">
-                      <h6 className="mb-0">
-                        <i className="fas fa-check-circle me-2"></i>
-                        {application.schema_name || 'Application'}
-                      </h6>
-                      <small>Approved</small>
-                    </div>
-                    <div className="card-body">
-                      <div className="mb-3">
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-user text-info me-2"></i>
-                          <strong>{application.applicant_name || 'Unknown Applicant'}</strong>
+
+        {loading ? (
+          <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+        ) : filtered.length === 0 ? (
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#d1fae5', color: '#059669' }}><i className="fas fa-inbox" /></div>
+            <div className={s.emptyTitle}>{search ? 'No matches' : 'No Approved Applications'}</div>
+            <p className={s.emptySub}>{search ? 'No applications match your search.' : 'No applications have been approved yet.'}</p>
+          </div>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className={s.tableWrap}>
+              <table className={s.table}>
+                <thead>
+                  <tr>
+                    <th style={{ paddingLeft: '1.25rem' }}>App No.</th>
+                    <th>Applicant</th>
+                    <th>Program</th>
+                    <th>Approved</th>
+                    <th>Letter</th>
+                    <th style={{ paddingRight: '1.25rem' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(app => (
+                    <tr key={app.id}>
+                      <td style={{ paddingLeft: '1.25rem' }}><span className={s.tdMono}>{app.application_number || `APP-${app.id}`}</span></td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                          <div>
+                            <div className={s.tdName}>{app.applicant_name || 'Unknown'}</div>
+                            <div className={s.tdEmail}>{app.applicant_email || '—'}</div>
+                          </div>
                         </div>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-envelope text-secondary me-2"></i>
-                          <span>{application.applicant_email || 'No email'}</span>
-                        </div>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-calendar text-success me-2"></i>
-                          <span>Approved: {new Date(application.updated_at || application.created_at).toLocaleDateString()}</span>
-                        </div>
-                        <div className="d-flex align-items-center">
-                          <i className="fas fa-clock text-info me-2"></i>
-                          <span>Days since approval: {Math.floor((new Date() - new Date(application.updated_at || application.created_at)) / (1000 * 60 * 60 * 24))}</span>
-                        </div>
-                      </div>
-                      
-                      {application.approval_notes && (
-                        <div className="mb-3">
-                          <small className="text-muted">
-                            <strong>Approval Notes:</strong> {application.approval_notes}
-                          </small>
-                        </div>
-                      )}
-                    </div>
-                    <div className="card-footer">
-                      <div className="d-flex gap-2 flex-wrap">
-                        <Link 
-                          href={`/admin/dashboard/applications/${application.id}`}
-                          className="btn btn-outline-primary btn-sm"
-                        >
-                          <i className="fas fa-eye me-1"></i> View
-                        </Link>
-                        
-                        <button 
-                          className="btn btn-outline-success btn-sm"
-                          onClick={() => handleSendAcceptanceLetter(application.id)}
-                        >
-                          <i className="fas fa-envelope me-1"></i> Send Letter
-                        </button>
-                        
-                        <button 
-                          className="btn btn-outline-info btn-sm"
-                          onClick={() => handleGenerateAdmissionLetter(application.id)}
-                        >
-                          <i className="fas fa-file-pdf me-1"></i> Generate PDF
-                        </button>
-                        
-                        {hasPermission('application.update') && (
-                          <button 
-                            className="btn btn-outline-warning btn-sm"
-                            onClick={() => handleRevokeApproval(application.id)}
-                          >
-                            <i className="fas fa-undo me-1"></i> Revoke
+                      </td>
+                      <td><span style={{ fontSize: '0.85rem', color: '#374151' }}>{app.schema_display_name || app.schema_name || 'N/A'}</span></td>
+                      <td><span style={{ fontSize: '0.82rem', color: '#374151' }}>{fmt(app.updated_at || app.created_at)}</span></td>
+                      <td>
+                        <span className={`${s.badge} ${app.acceptance_letter_sent ? s.badgeActive : s.badgePending}`}>
+                          {app.acceptance_letter_sent ? 'Sent' : 'Pending'}
+                        </span>
+                      </td>
+                      <td className={s.actionsCell} style={{ paddingRight: '1.25rem' }}>
+                        <div className={s.actionBtns}>
+                          <Link href={`/admin/dashboard/applications/${app.id}`} className={s.btnIcon} title="View">
+                            <i className="fas fa-eye" />
+                          </Link>
+                          <button onClick={() => handleSendLetter(app.id)} className={`${s.btnIcon} ${s.btnIconGreen}`} title="Send Letter">
+                            <i className="fas fa-envelope" />
                           </button>
-                        )}
-                      </div>
+                          {hasPermission('application.update') && (
+                            <button onClick={() => handleRevoke(app.id)} className={`${s.btnIcon}`} title="Revoke Approval" style={{ color: '#d97706', borderColor: '#fde68a' }}>
+                              <i className="fas fa-undo" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className={s.mobileList}>
+              {filtered.map(app => (
+                <div key={app.id} className={s.mobileCard}>
+                  <div className={s.mobileCardHead}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                      <span className={s.tdName}>{app.applicant_name || 'Unknown'}</span>
                     </div>
+                    <span className={`${s.badge} ${app.acceptance_letter_sent ? s.badgeActive : s.badgePending}`}>{app.acceptance_letter_sent ? 'Sent' : 'Letter Pending'}</span>
+                  </div>
+                  <div className={s.mobileCardBody}>
+                    <div className={s.mobileCardRow}><span className={s.mobileCardKey}>App No.</span><span className={s.mobileCardVal}><span className={s.tdMono} style={{ fontSize: '0.72rem' }}>{app.application_number || `APP-${app.id}`}</span></span></div>
+                    <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Program</span><span className={s.mobileCardVal}>{app.schema_display_name || app.schema_name || 'N/A'}</span></div>
+                    <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Approved</span><span className={s.mobileCardVal}>{fmt(app.updated_at || app.created_at)}</span></div>
+                  </div>
+                  <div className={s.mobileCardFoot}>
+                    <Link href={`/admin/dashboard/applications/${app.id}`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}><i className="fas fa-eye" />View</Link>
+                    <button onClick={() => handleSendLetter(app.id)} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`}><i className="fas fa-envelope" />Send Letter</button>
+                    {hasPermission('application.update') && <button onClick={() => handleRevoke(app.id)} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}><i className="fas fa-undo" />Revoke</button>}
                   </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Quick Stats */}
-      <div className="row mt-4">
-        <div className="col-md-4">
-          <div className="card text-center">
-            <div className="card-body">
-              <h5 className="text-success">{applications.length}</h5>
-              <p className="mb-0">Total Approved</p>
-            </div>
-          </div>
-        </div>
-        <div className="col-md-4">
-          <div className="card text-center">
-            <div className="card-body">
-              <h5 className="text-info">
-                {applications.filter(app => 
-                  Math.floor((new Date() - new Date(app.updated_at || app.created_at)) / (1000 * 60 * 60 * 24)) <= 7
-                ).length}
-              </h5>
-              <p className="mb-0">Approved This Week</p>
-            </div>
-          </div>
-        </div>
-        <div className="col-md-4">
-          <div className="card text-center">
-            <div className="card-body">
-              <h5 className="text-warning">
-                {applications.filter(app => !app.acceptance_letter_sent).length}
-              </h5>
-              <p className="mb-0">Pending Letters</p>
-            </div>
-          </div>
-        </div>
+          </>
+        )}
+        {filtered.length > 0 && <div className={s.cardFooter}><span>Showing <strong>{filtered.length}</strong> of <strong>{applications.length}</strong> approved applications</span></div>}
       </div>
     </div>
   );

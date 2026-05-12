@@ -1,473 +1,256 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
-import apiService from '@/services/api';
-import { API_URL } from '@/services/api';
+import apiService, { API_URL } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
+
+const fmtDt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+const STATUS_BADGE = {
+  pending:     { cls: s.badgePending,  label: 'Pending' },
+  submitted:   { cls: s.badgeSubmitted, label: 'Submitted' },
+  approved:    { cls: s.badgeApproved, label: 'Approved' },
+  rejected:    { cls: s.badgeRejected, label: 'Rejected' },
+  'under review': { cls: s.badgeReview, label: 'Under Review' },
+};
 
 export default function ApplicationDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  const applicationId = params.id;
-  
-  const {
-    applications,
-    loading,
-    error,
-    fetchApplications,
-    updateApplicationStatus,
-    deleteApplication
-  } = useApplications();
-  
-  const [application, setApplication] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(true);
-  const [errorDetail, setErrorDetail] = useState(null);
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { applications, fetchApplications, updateApplicationStatus, deleteApplication } = useApplications();
 
-  const loadApplicationDetail = useCallback(async () => {
+  const [app, setApp]       = useState(null);
+  const [loadingApp, setLoadingApp] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [error, setError]   = useState('');
+  const loadedRef = useRef(false);
+
+  const loadDetail = useCallback(async () => {
+    const existing = applications.find(a => a.id == params.id);
+    if (existing) { setApp(existing); setLoadingApp(false); return; }
     try {
-      setLoadingDetail(true);
-      setErrorDetail(null);
-      
-      // First try to get from Redux state
-      const existingApp = applications.find(app => app.id == applicationId);
-      if (existingApp) {
-        setApplication(existingApp);
-        setLoadingDetail(false);
-        return;
-      }
-      
-      // If not found in Redux, fetch from API
-      const response = await apiService.get(`/applications/${applicationId}`);
-      setApplication(response.data.data || response.data);
-    } catch (error) {
-      console.error('Error loading application detail:', error);
-      setErrorDetail('Failed to load application details');
-    } finally {
-      setLoadingDetail(false);
+      const res = await apiService.get(`/applications/${params.id}`);
+      setApp(res.data?.data ?? res.data);
+    } catch { setError('Failed to load application details'); }
+    finally { setLoadingApp(false); }
+  }, [applications, params.id]);
+
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
+  useEffect(() => {
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchApplications();
     }
-  }, [applications, applicationId]);
+  }, [status, session?.user?.id, fetchApplications]);
 
   useEffect(() => {
-    if (status === 'authenticated' && applicationId) {
-      loadApplicationDetail();
-    }
-  }, [status, applicationId, loadApplicationDetail]);
+    if (status === 'authenticated' && params.id) loadDetail();
+  }, [status, params.id, loadDetail]);
 
-  const handleStatusChange = async (newStatus) => {
-    if (!window.confirm(`Are you sure you want to ${newStatus} this application?`)) {
-      return;
-    }
-
-    try {
-      await updateApplicationStatus(applicationId, newStatus);
-      alert(`Application ${newStatus} successfully!`);
-      // Reload the application data
-      loadApplicationDetail();
-    } catch (error) {
-      console.error('Error updating application status:', error);
-      alert('Failed to update application status');
-    }
+  const handleStatusChange = (newStatus) => {
+    if (!window.confirm(`${newStatus.charAt(0).toUpperCase() + newStatus.slice(1)} this application?`)) return;
+    updateApplicationStatus(params.id, newStatus);
+    setNotice(`Application ${newStatus}.`);
+    setTimeout(() => loadDetail(), 800);
   };
 
-  const handleDeleteApplication = async () => {
-    if (!window.confirm('Are you sure you want to delete this application? This action cannot be undone.')) {
-      return;
-    }
-
-    try {
-      await deleteApplication(applicationId);
-      alert('Application deleted successfully!');
-      router.push('/admin/dashboard/applications');
-    } catch (error) {
-      console.error('Error deleting application:', error);
-      alert('Failed to delete application');
-    }
+  const handleDelete = () => {
+    if (!window.confirm('Delete this application? This cannot be undone.')) return;
+    deleteApplication(params.id);
+    setNotice('Application deleted.');
+    setTimeout(() => router.push('/admin/dashboard/applications'), 1500);
   };
 
-  const handleDownloadApplication = async () => {
+  const handleDownload = async () => {
     try {
-      // Create download URL
-      const downloadUrl = `${API_URL}/applications/${applicationId}/download`;
-      
-      // Create a temporary link element to trigger download
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `application_${applicationId}.pdf`;
-      
-      // Add authentication headers by using fetch first
-      const response = await fetch(downloadUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${session?.accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
+      const res = await fetch(`${API_URL}/applications/${params.id}/download`, {
+        headers: { 'Authorization': `Bearer ${session?.accessToken}` },
+        credentials: 'include',
       });
-
-      if (!response.ok) {
-        throw new Error(`Download failed: ${response.status} ${response.statusText}`);
-      }
-
-      // Get the blob from response
-      const blob = await response.blob();
-      
-      // Create object URL and trigger download
-      const blobUrl = window.URL.createObjectURL(blob);
-      link.href = blobUrl;
-      
-      // Trigger download
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Clean up blob URL
-      window.URL.revokeObjectURL(blobUrl);
-      
-    } catch (error) {
-      console.error('Error downloading application:', error);
-      alert('Failed to download application. Please try again.');
-    }
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const url  = window.URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `application_${params.id}.pdf`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setNotice('PDF downloaded.');
+    } catch { setError('Failed to download application PDF.'); }
   };
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      pending: { class: 'bg-warning', text: 'Pending' },
-      approved: { class: 'bg-success', text: 'Approved' },
-      rejected: { class: 'bg-danger', text: 'Rejected' }
-    };
-    
-    const config = statusConfig[status] || { class: 'bg-secondary', text: status };
-    
+  if (status === 'loading' || permLoading || loadingApp) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
+  }
+
+  if (error || !app) {
     return (
-      <span className={`badge ${config.class}`}>
-        {config.text}
-      </span>
-    );
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  if (loadingDetail) {
-    return (
-      <div className="container-fluid">
-        <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-        </div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error || 'Application not found.'}</div>
+        <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`}><i className="fas fa-arrow-left" />Back to Applications</Link>
       </div>
     );
   }
 
-  if (errorDetail || !application) {
-    return (
-      <div className="container-fluid">
-        <div className="alert alert-danger">
-          <h4>Error Loading Application</h4>
-          <p>{errorDetail || 'Application not found'}</p>
-          <Link href="/admin/dashboard/applications" className="btn btn-primary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Applications
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const statusCfg = STATUS_BADGE[app.status] ?? { cls: s.badgeInfo, label: app.status };
 
   return (
-    <div className="container-fluid">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
       {/* Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className={s.pageHeader}>
         <div>
-          <nav aria-label="breadcrumb">
-            <ol className="breadcrumb">
-              <li className="breadcrumb-item">
-                <Link href="/admin/dashboard">Dashboard</Link>
-              </li>
-              <li className="breadcrumb-item">
-                <Link href="/admin/dashboard/applications">Applications</Link>
-              </li>
-              <li className="breadcrumb-item active" aria-current="page">
-                Application #{application.application_number || application.id}
-              </li>
-            </ol>
-          </nav>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-file-alt text-primary me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-file-alt" /></span>
             Application Details
-          </h2>
-          <p className="text-muted mb-0">
-            {application.applicant_name || 'Unknown Applicant'} - {application.schema_display_name || application.schema_name}
-          </p>
+          </h1>
+          <p className={s.pageSub}>{app.applicant_name || 'Unknown Applicant'} — {app.schema_display_name || app.schema_name || 'N/A'}</p>
         </div>
-        
-        <div className="btn-group">
-          <Link 
-            href="/admin/dashboard/applications" 
-            className="btn btn-outline-secondary"
-          >
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to List
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Applications
           </Link>
-          
           {hasPermission('application.update') && (
-            <Link 
-              href={`/admin/dashboard/applications/${applicationId}/edit`}
-              className="btn btn-outline-warning"
-            >
-              <i className="fas fa-edit me-2"></i>
-              Edit Application
+            <Link href={`/admin/dashboard/applications/${params.id}/edit`} className={`${s.btn} ${s.btnPrimary}`}>
+              <i className="fas fa-edit" />Edit
             </Link>
           )}
         </div>
       </div>
 
-      {/* Application Status Card */}
-      <div className="row mb-4">
-        <div className="col-md-8">
-          <div className="card">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Application Information
-              </h5>
-              {getStatusBadge(application.status)}
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-6">
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Application ID</label>
-                    <p className="mb-0">
-                      <code className="text-primary">
-                        {application.application_number || `APP${application.id}`}
-                      </code>
-                    </p>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Applicant Name</label>
-                    <p className="mb-0">
-                      <i className="fas fa-user text-info me-2"></i>
-                      {application.applicant_name || 'Unknown Applicant'}
-                    </p>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Email Address</label>
-                    <p className="mb-0">
-                      <i className="fas fa-envelope text-secondary me-2"></i>
-                      {application.applicant_email || 'No email'}
-                    </p>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Phone Number</label>
-                    <p className="mb-0">
-                      <i className="fas fa-phone text-success me-2"></i>
-                      {application.phone || 'No phone'}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="col-md-6">
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Program/Schema</label>
-                    <p className="mb-0">
-                      <span className="badge bg-light text-dark">
-                        {application.schema_display_name || application.schema_name || 'N/A'}
-                      </span>
-                    </p>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Application Fee</label>
-                    <p className="mb-0">
-                      <i className="fas fa-dollar-sign text-warning me-2"></i>
-                      ${application.application_fee || '0.00'}
-                    </p>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Payment Status</label>
-                    <p className="mb-0">
-                      <span className={`badge ${application.payment_status === 'paid' ? 'bg-success' : 'bg-warning'}`}>
-                        {application.payment_status || 'pending'}
-                      </span>
-                    </p>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Date of Birth</label>
-                    <p className="mb-0">
-                      <i className="fas fa-calendar text-info me-2"></i>
-                      {application.date_of_birth ? new Date(application.date_of_birth).toLocaleDateString() : 'N/A'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="col-md-4">
-          <div className="card">
-            <div className="card-header">
-              <h5 className="mb-0">
-                <i className="fas fa-clock me-2"></i>
-                Timeline
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="mb-3">
-                <label className="form-label fw-medium">Submitted</label>
-                <p className="mb-0 text-muted">
-                  {formatDate(application.created_at)}
-                </p>
-              </div>
-              
-              {application.updated_at && (
-                <div className="mb-3">
-                  <label className="form-label fw-medium">Last Updated</label>
-                  <p className="mb-0 text-muted">
-                    {formatDate(application.updated_at)}
-                  </p>
-                </div>
-              )}
-              
-              {application.reviewed_at && (
-                <div className="mb-3">
-                  <label className="form-label fw-medium">Reviewed</label>
-                  <p className="mb-0 text-muted">
-                    {formatDate(application.reviewed_at)}
-                  </p>
-                </div>
-              )}
-              
-              {application.reviewed_by_username && (
-                <div className="mb-3">
-                  <label className="form-label fw-medium">Reviewed By</label>
-                  <p className="mb-0 text-muted">
-                    <i className="fas fa-user-check me-2"></i>
-                    {application.reviewed_by_username}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
 
-      {/* Additional Information */}
-      {(application.address || application.notes || application.custom_data) && (
-        <div className="row mb-4">
-          <div className="col-12">
-            <div className="card">
-              <div className="card-header">
-                <h5 className="mb-0">
-                  <i className="fas fa-info me-2"></i>
-                  Additional Information
-                </h5>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+
+        {/* Main info */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader} style={{ justifyContent: 'space-between' }}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <i className="fas fa-id-card" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Application Information
+              </span>
+              <span className={`${s.badge} ${statusCfg.cls}`}>{statusCfg.label}</span>
+            </div>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem' }}>
+                {[
+                  { label: 'App Number',     value: <code style={{ background: '#f1f5f9', padding: '0.15rem 0.4rem', borderRadius: 4, fontSize: '0.82rem', color: '#2563eb' }}>{app.application_number || `APP-${app.id}`}</code> },
+                  { label: 'Program',        value: app.schema_display_name || app.schema_name || 'N/A' },
+                  { label: 'Applicant',      value: app.applicant_name || 'Unknown' },
+                  { label: 'Email',          value: app.applicant_email || '—' },
+                  { label: 'Phone',          value: app.phone || '—' },
+                  { label: 'Date of Birth',  value: app.date_of_birth ? new Date(app.date_of_birth).toLocaleDateString() : '—' },
+                  { label: 'App Fee',        value: app.application_fee ? `₦${parseFloat(app.application_fee).toLocaleString()}` : '—' },
+                  { label: 'Payment',        value: <span className={`${s.badge} ${app.payment_status === 'paid' ? s.badgePaid : s.badgePending}`}>{app.payment_status || 'pending'}</span> },
+                ].map(row => (
+                  <div key={row.label} className={s.infoRow} style={{ gridColumn: 'span 1' }}>
+                    <span className={s.infoLabel}>{row.label}</span>
+                    <span className={s.infoValue}>{row.value}</span>
+                  </div>
+                ))}
               </div>
-              <div className="card-body">
-                {application.address && (
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Address</label>
-                    <p className="mb-0">
-                      <i className="fas fa-map-marker-alt text-danger me-2"></i>
-                      {application.address}
-                    </p>
+            </div>
+          </div>
+
+          {(app.address || app.notes || app.custom_data) && (
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#fef3c7', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                    <i className="fas fa-info" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  Additional Information
+                </span>
+              </div>
+              <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+                {app.address && (
+                  <div className={s.infoRow}>
+                    <span className={s.infoLabel}>Address</span>
+                    <span className={s.infoValue}>{app.address}</span>
                   </div>
                 )}
-                
-                {application.notes && (
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Notes</label>
-                    <p className="mb-0">
-                      {application.notes}
-                    </p>
+                {app.notes && (
+                  <div className={s.infoRow}>
+                    <span className={s.infoLabel}>Notes</span>
+                    <span className={s.infoValue}>{app.notes}</span>
                   </div>
                 )}
-                
-                {application.custom_data && (
-                  <div className="mb-3">
-                    <label className="form-label fw-medium">Custom Data</label>
-                    <pre className="bg-light p-3 rounded">
-                      {JSON.stringify(application.custom_data, null, 2)}
+                {app.custom_data && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <div className={s.infoLabel} style={{ marginBottom: '0.35rem' }}>Custom Data</div>
+                    <pre style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: 6, fontSize: '0.75rem', color: '#374151', overflowX: 'auto', margin: 0, border: '1px solid #e5e7eb' }}>
+                      {JSON.stringify(app.custom_data, null, 2)}
                     </pre>
                   </div>
                 )}
               </div>
             </div>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* Actions */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card">
-            <div className="card-header">
-              <h5 className="mb-0">
-                <i className="fas fa-cogs me-2"></i>
-                Actions
-              </h5>
+        {/* Sidebar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-clock" style={{ color: '#0891b2' }} />Timeline</span>
             </div>
-            <div className="card-body">
-              <div className="btn-group" role="group">
-                {hasPermission('application.update') && application.status === 'pending' && (
-                  <>
-                    <button 
-                      className="btn btn-success"
-                      onClick={() => handleStatusChange('approved')}
-                    >
-                      <i className="fas fa-check me-2"></i>
-                      Approve Application
-                    </button>
-                    <button 
-                      className="btn btn-danger"
-                      onClick={() => handleStatusChange('rejected')}
-                    >
-                      <i className="fas fa-times me-2"></i>
-                      Reject Application
-                    </button>
-                  </>
-                )}
-                
-                <button 
-                  className="btn btn-info"
-                  onClick={handleDownloadApplication}
-                >
-                  <i className="fas fa-download me-2"></i>
-                  Download PDF
-                </button>
-                
-                {hasPermission('application.delete') && (
-                  <button 
-                    className="btn btn-outline-danger"
-                    onClick={handleDeleteApplication}
-                  >
-                    <i className="fas fa-trash me-2"></i>
-                    Delete Application
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {[
+                { label: 'Submitted',    value: fmtDt(app.created_at) },
+                { label: 'Last Updated', value: fmtDt(app.updated_at) },
+                { label: 'Reviewed',     value: fmtDt(app.reviewed_at) },
+                { label: 'Reviewed By',  value: app.reviewed_by_username || '—' },
+              ].map(row => (
+                <div key={row.label} className={s.infoRow}>
+                  <span className={s.infoLabel}>{row.label}</span>
+                  <span className={s.infoValue}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-bolt" style={{ color: '#d97706' }} />Actions</span>
+            </div>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {hasPermission('application.update') && (app.status === 'pending' || app.status === 'submitted') && (
+                <>
+                  <button onClick={() => handleStatusChange('approved')} className={`${s.btn} ${s.btnGreen}`} style={{ justifyContent: 'flex-start' }}>
+                    <i className="fas fa-check" />Approve Application
                   </button>
-                )}
-              </div>
+                  <button onClick={() => handleStatusChange('rejected')} className={`${s.btn} ${s.btnDanger}`} style={{ justifyContent: 'flex-start' }}>
+                    <i className="fas fa-times" />Reject Application
+                  </button>
+                </>
+              )}
+              <button onClick={handleDownload} className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start' }}>
+                <i className="fas fa-download" />Download PDF
+              </button>
+              {hasPermission('application.update') && (
+                <Link href={`/admin/dashboard/applications/${params.id}/edit`} className={`${s.btn} ${s.btnPrimary}`} style={{ justifyContent: 'flex-start' }}>
+                  <i className="fas fa-edit" />Edit Application
+                </Link>
+              )}
+              {hasPermission('application.delete') && (
+                <button onClick={handleDelete} className={`${s.btn} ${s.btnDanger}`} style={{ justifyContent: 'flex-start' }}>
+                  <i className="fas fa-trash" />Delete Application
+                </button>
+              )}
+              <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start' }}>
+                <i className="fas fa-arrow-left" />Back to List
+              </Link>
             </div>
           </div>
         </div>

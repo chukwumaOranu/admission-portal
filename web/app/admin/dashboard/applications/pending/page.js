@@ -1,269 +1,221 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
+
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const daysSince = (d) => d ? Math.floor((Date.now() - new Date(d)) / 86400000) : 0;
+const initials = (name) => (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
 export default function PendingReviewsPage() {
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state and actions
-  const {
-    applications: allApplications,
-    loading,
-    error,
-    fetchApplications,
-    updateApplicationStatus
-  } = useApplications();
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { applications: all, loading, error, fetchApplications, updateApplicationStatus } = useApplications();
+  const [search, setSearch] = useState('');
+  const [notice, setNotice] = useState('');
+  const loadedRef = useRef(false);
 
-  // Filter for pending applications
-  const applications = allApplications.filter(app => app.status === 'pending');
+  const applications = all.filter(a => a.status === 'submitted' || a.status === 'pending');
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      fetchApplications();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchApplications();
     }
-  }, [status, session?.user?.id, session?.accessToken, fetchApplications]);
+  }, [status, session?.user?.id, fetchApplications]);
 
-  const handleApproveApplication = async (applicationId) => {
-    if (window.confirm('Are you sure you want to approve this application?')) {
-      try {
-        await updateApplicationStatus(applicationId, 'approved');
-        alert('Application approved successfully!');
-      } catch (error) {
-        console.error('Error approving application:', error);
-        alert('Failed to approve application');
-      }
-    }
+  const filtered = applications.filter(a => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return [a.applicant_name, a.applicant_email, a.application_number].filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
+
+  const overdue = applications.filter(a => daysSince(a.created_at) > 7).length;
+  const recent  = applications.filter(a => daysSince(a.created_at) <= 3).length;
+
+  const handleApprove = (id) => {
+    if (!window.confirm('Approve this application?')) return;
+    updateApplicationStatus(id, 'approved');
+    setNotice('Application approved.');
   };
 
-  const handleRejectApplication = async (applicationId) => {
-    const reason = prompt('Please provide a reason for rejection:');
-    if (reason) {
-      try {
-        await updateApplicationStatus(applicationId, 'rejected');
-        alert('Application rejected successfully!');
-      } catch (error) {
-        console.error('Error rejecting application:', error);
-        alert('Failed to reject application');
-      }
-    }
+  const handleReject = (id) => {
+    if (!window.confirm('Reject this application?')) return;
+    updateApplicationStatus(id, 'rejected');
+    setNotice('Application rejected.');
   };
 
-  const handleRequestMoreInfo = async (applicationId) => {
-    const message = prompt('What additional information is needed?');
-    if (message) {
-      try {
-        // Update status to request more info (or you can add a new Redux action)
-        await updateApplicationStatus(applicationId, 'pending', message);
-        alert('Information request sent successfully!');
-      } catch (error) {
-        console.error('Error requesting information:', error);
-        alert('Failed to send information request');
-      }
-    }
-  };
-
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
+  if (status === 'loading' || permLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="pending-reviews-page">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-clock text-warning me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-clock" /></span>
             Pending Reviews
-          </h2>
-          <p className="text-muted mb-0">Review and process applications awaiting approval</p>
+          </h1>
+          <p className={s.pageSub}>Applications awaiting review and approval</p>
         </div>
-        <div className="d-flex gap-2">
-          <Link href="/admin/dashboard/applications" className="btn btn-outline-primary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Applications
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Applications
           </Link>
-          <button 
-            className="btn btn-primary"
-            onClick={fetchApplications}
-            disabled={loading}
-          >
-            <i className="fas fa-sync me-2"></i>
-            Refresh
+          <button onClick={fetchApplications} className={`${s.btn} ${s.btnOutline}`} disabled={loading}>
+            <i className="fas fa-sync" />Refresh
           </button>
         </div>
       </div>
 
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
 
-      {/* Pending Applications */}
-      <div className="card">
-        <div className="card-header">
-          <h5 className="mb-0">
-            <i className="fas fa-list me-2"></i>
-            Applications Pending Review ({applications.length})
-          </h5>
-        </div>
-        <div className="card-body">
-          {loading ? (
-            <div className="text-center py-4">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
-              </div>
+      {/* Stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Pending Review', value: applications.length, icon: 'fas fa-clock',         color: '#d97706' },
+          { label: 'Overdue >7d',   value: overdue,             icon: 'fas fa-hourglass-end',  color: '#dc2626' },
+          { label: 'Recent <3d',    value: recent,              icon: 'fas fa-calendar-check', color: '#059669' },
+          { label: 'Paid',          value: applications.filter(a => a.payment_status === 'paid').length, icon: 'fas fa-credit-card', color: '#0891b2' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
             </div>
-          ) : applications.length === 0 ? (
-            <div className="text-center py-4">
-              <i className="fas fa-check-circle text-success fs-1 mb-3"></i>
-              <h5 className="text-success">All Caught Up!</h5>
-              <p className="text-muted">No applications are currently pending review.</p>
-            </div>
-          ) : (
-            <div className="row">
-              {applications.map(application => (
-                <div key={application.id} className="col-md-6 col-lg-4 mb-4">
-                  <div className="card h-100 border-warning">
-                    <div className="card-header bg-warning text-dark">
-                      <h6 className="mb-0">
-                        <i className="fas fa-clock me-2"></i>
-                        {application.schema_name || 'Application'}
-                      </h6>
-                      <small>Pending Review</small>
-                    </div>
-                    <div className="card-body">
-                      <div className="mb-3">
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-user text-info me-2"></i>
-                          <strong>{application.applicant_name || 'Unknown Applicant'}</strong>
-                        </div>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-envelope text-secondary me-2"></i>
-                          <span>{application.applicant_email || 'No email'}</span>
-                        </div>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-calendar text-warning me-2"></i>
-                          <span>Submitted: {new Date(application.created_at).toLocaleDateString()}</span>
-                        </div>
-                        <div className="d-flex align-items-center">
-                          <i className="fas fa-hourglass-half text-danger me-2"></i>
-                          <span>Days pending: {Math.floor((new Date() - new Date(application.created_at)) / (1000 * 60 * 60 * 24))}</span>
-                        </div>
-                      </div>
-                      
-                      {application.notes && (
-                        <div className="mb-3">
-                          <small className="text-muted">
-                            <strong>Notes:</strong> {application.notes}
-                          </small>
-                        </div>
-                      )}
-                    </div>
-                    <div className="card-footer">
-                      <div className="d-flex gap-2 flex-wrap">
-                        <Link 
-                          href={`/admin/dashboard/applications/${application.id}`}
-                          className="btn btn-outline-primary btn-sm"
-                        >
-                          <i className="fas fa-eye me-1"></i> Review
-                        </Link>
-                        
-                        {hasPermission('application.approve') && (
-                          <button 
-                            className="btn btn-outline-success btn-sm"
-                            onClick={() => handleApproveApplication(application.id)}
-                          >
-                            <i className="fas fa-check me-1"></i> Approve
-                          </button>
-                        )}
-                        
-                        {hasPermission('application.reject') && (
-                          <button 
-                            className="btn btn-outline-danger btn-sm"
-                            onClick={() => handleRejectApplication(application.id)}
-                          >
-                            <i className="fas fa-times me-1"></i> Reject
-                          </button>
-                        )}
-                        
-                        <button 
-                          className="btn btn-outline-info btn-sm"
-                          onClick={() => handleRequestMoreInfo(application.id)}
-                        >
-                          <i className="fas fa-question me-1"></i> Request Info
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
+          </div>
+        ))}
       </div>
 
-      {/* Quick Stats */}
-      <div className="row mt-4">
-        <div className="col-md-4">
-          <div className="card text-center">
-            <div className="card-body">
-              <h5 className="text-warning">{applications.length}</h5>
-              <p className="mb-0">Pending Review</p>
-            </div>
+      {/* Table card */}
+      <div className={s.card} style={{ marginBottom: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', padding: '0.875rem 1.25rem', borderBottom: '1px solid #f0f4f8' }}>
+          <span className={s.cardTitle}><i className="fas fa-list" style={{ color: '#d97706' }} />Pending ({filtered.length})</span>
+          <div className={s.searchWrap} style={{ maxWidth: 240 }}>
+            <i className={`fas fa-search ${s.searchIcon}`} />
+            <input className={s.searchInput} placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
-        <div className="col-md-4">
-          <div className="card text-center">
-            <div className="card-body">
-              <h5 className="text-info">
-                {applications.filter(app => 
-                  Math.floor((new Date() - new Date(app.created_at)) / (1000 * 60 * 60 * 24)) > 7
-                ).length}
-              </h5>
-              <p className="mb-0">Overdue (&gt;7 days)</p>
-            </div>
+
+        {loading ? (
+          <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+        ) : filtered.length === 0 ? (
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#d1fae5', color: '#059669' }}><i className="fas fa-check-circle" /></div>
+            <div className={s.emptyTitle}>{search ? 'No matches' : 'All Caught Up!'}</div>
+            <p className={s.emptySub}>{search ? 'No applications match your search.' : 'No applications are pending review.'}</p>
           </div>
-        </div>
-        <div className="col-md-4">
-          <div className="card text-center">
-            <div className="card-body">
-              <h5 className="text-success">
-                {applications.filter(app => 
-                  Math.floor((new Date() - new Date(app.created_at)) / (1000 * 60 * 60 * 24)) <= 3
-                ).length}
-              </h5>
-              <p className="mb-0">Recent (&lt;3 days)</p>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className={s.tableWrap}>
+              <table className={s.table}>
+                <thead>
+                  <tr>
+                    <th style={{ paddingLeft: '1.25rem' }}>App No.</th>
+                    <th>Applicant</th>
+                    <th>Program</th>
+                    <th>Payment</th>
+                    <th>Submitted</th>
+                    <th>Waiting</th>
+                    <th style={{ paddingRight: '1.25rem' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(app => {
+                    const days = daysSince(app.created_at);
+                    return (
+                      <tr key={app.id}>
+                        <td style={{ paddingLeft: '1.25rem' }}><span className={s.tdMono}>{app.application_number || `APP-${app.id}`}</span></td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                            <div>
+                              <div className={s.tdName}>{app.applicant_name || 'Unknown'}</div>
+                              <div className={s.tdEmail}>{app.applicant_email || '—'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td><span style={{ fontSize: '0.85rem', color: '#374151' }}>{app.schema_display_name || app.schema_name || 'N/A'}</span></td>
+                        <td>
+                          <span className={`${s.badge} ${app.payment_status === 'paid' ? s.badgePaid : s.badgePending}`}>
+                            {app.payment_status === 'paid' ? 'Paid' : 'Pending'}
+                          </span>
+                        </td>
+                        <td><span style={{ fontSize: '0.82rem', color: '#374151' }}>{fmt(app.created_at)}</span></td>
+                        <td>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 600, color: days > 7 ? '#dc2626' : days > 3 ? '#d97706' : '#059669' }}>
+                            {days}d
+                          </span>
+                        </td>
+                        <td className={s.actionsCell} style={{ paddingRight: '1.25rem' }}>
+                          <div className={s.actionBtns}>
+                            <Link href={`/admin/dashboard/applications/${app.id}`} className={s.btnIcon} title="View">
+                              <i className="fas fa-eye" />
+                            </Link>
+                            {hasPermission('application.update') && (
+                              <>
+                                <button onClick={() => handleApprove(app.id)} className={`${s.btnIcon} ${s.btnIconGreen}`} title="Approve">
+                                  <i className="fas fa-check" />
+                                </button>
+                                <button onClick={() => handleReject(app.id)} className={`${s.btnIcon} ${s.btnIconDanger}`} title="Reject">
+                                  <i className="fas fa-times" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
-        </div>
+
+            {/* Mobile cards */}
+            <div className={s.mobileList}>
+              {filtered.map(app => {
+                const days = daysSince(app.created_at);
+                return (
+                  <div key={app.id} className={s.mobileCard}>
+                    <div className={s.mobileCardHead}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                        <span className={s.tdName}>{app.applicant_name || 'Unknown'}</span>
+                      </div>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: days > 7 ? '#dc2626' : days > 3 ? '#d97706' : '#059669' }}>{days}d</span>
+                    </div>
+                    <div className={s.mobileCardBody}>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>App No.</span><span className={s.mobileCardVal}><span className={s.tdMono} style={{ fontSize: '0.72rem' }}>{app.application_number || `APP-${app.id}`}</span></span></div>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Program</span><span className={s.mobileCardVal}>{app.schema_display_name || app.schema_name || 'N/A'}</span></div>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Payment</span><span className={`${s.badge} ${app.payment_status === 'paid' ? s.badgePaid : s.badgePending}`}>{app.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></div>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Submitted</span><span className={s.mobileCardVal}>{fmt(app.created_at)}</span></div>
+                    </div>
+                    <div className={s.mobileCardFoot}>
+                      <Link href={`/admin/dashboard/applications/${app.id}`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}><i className="fas fa-eye" />View</Link>
+                      {hasPermission('application.update') && (
+                        <>
+                          <button onClick={() => handleApprove(app.id)} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`}><i className="fas fa-check" />Approve</button>
+                          <button onClick={() => handleReject(app.id)} className={`${s.btn} ${s.btnDanger} ${s.btnSm}`}><i className="fas fa-times" />Reject</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {filtered.length > 0 && <div className={s.cardFooter}><span>Showing <strong>{filtered.length}</strong> of <strong>{applications.length}</strong> pending applications</span></div>}
       </div>
     </div>
   );

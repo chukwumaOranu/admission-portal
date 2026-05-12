@@ -4,42 +4,48 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useEmployeeSchemaActions } from '@/hooks/useRedux';
+import { useStudents } from '@/hooks/useRedux';
 import { usePermissions } from '@/hooks/usePermissions';
 import s from '@/styles/admin-portal.module.css';
 
-export default function AddEmployeeSchemaPage() {
+export default function AddStudentSchemaPage() {
   const router = useRouter();
   const { status } = useSession();
-  const { createEmployeeSchema } = useEmployeeSchemaActions();
+  const { createStudentSchema } = useStudents();
   const { hasPermission, loading: permLoading } = usePermissions();
 
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
-  const [formData, setFormData] = useState({ schema_name: '', display_name: '', description: '' });
+  const [formData, setFormData] = useState({
+    schema_name: '', display_name: '', description: '', is_active: true,
+  });
 
   const handleChange = (e) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, type, checked, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     if (error) setError('');
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!formData.schema_name.trim() || !formData.display_name.trim()) {
+      setError('Schema name and display name are required.');
+      return;
+    }
     setSaving(true);
-    createEmployeeSchema(formData);
-    router.push('/admin/dashboard/employees/schemas');
-    setSaving(false);
+    createStudentSchema(formData);
+    router.push('/admin/dashboard/students/schemas');
   };
 
   if (status === 'loading' || permLoading) {
     return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  if (!hasPermission('employee_schema.create')) {
+  if (!hasPermission('student_schema.create')) {
     return (
       <div style={{ padding: '1.5rem' }}>
-        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to create employee schemas.</div>
-        <Link href="/admin/dashboard/employees/schemas" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Schemas</Link>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to create student schemas.</div>
+        <Link href="/admin/dashboard/students/schemas" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Schemas</Link>
       </div>
     );
   }
@@ -51,18 +57,25 @@ export default function AddEmployeeSchemaPage() {
         <div>
           <h1 className={s.pageTitle}>
             <span className={s.iconBox} style={{ background: '#e0f2fe', color: '#0891b2' }}><i className="fas fa-database" /></span>
-            Add Employee Schema
+            Add Student Schema
           </h1>
-          <p className={s.pageSub}>Create a new employee data schema</p>
+          <p className={s.pageSub}>Create a new student data schema</p>
         </div>
         <div className={s.pageActions}>
-          <Link href="/admin/dashboard/employees/schemas" className={`${s.btn} ${s.btnOutline}`}>
+          <Link href="/admin/dashboard/students/schemas" className={`${s.btn} ${s.btnOutline}`}>
             <i className="fas fa-arrow-left" />Schemas
           </Link>
         </div>
       </div>
 
-      {error && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {error && (
+        <div className={`${s.alert} ${s.alertDanger}`}>
+          <i className="fas fa-exclamation-triangle" />{error}
+          <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}>
+            <i className="fas fa-times" />
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
@@ -80,24 +93,66 @@ export default function AddEmployeeSchemaPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                 <div>
                   <label className={s.formLabel}>Schema Name <span style={{ color: '#dc2626' }}>*</span></label>
-                  <input type="text" className={s.formInput} name="schema_name" value={formData.schema_name} onChange={handleChange} placeholder="e.g., basic_employee" required />
+                  <input
+                    type="text"
+                    className={s.formInput}
+                    name="schema_name"
+                    value={formData.schema_name}
+                    onChange={handleChange}
+                    placeholder="e.g., undergraduate"
+                    required
+                  />
                   <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>Lowercase, underscores only</p>
                 </div>
                 <div>
                   <label className={s.formLabel}>Display Name <span style={{ color: '#dc2626' }}>*</span></label>
-                  <input type="text" className={s.formInput} name="display_name" value={formData.display_name} onChange={handleChange} placeholder="e.g., Basic Employee" required />
+                  <input
+                    type="text"
+                    className={s.formInput}
+                    name="display_name"
+                    value={formData.display_name}
+                    onChange={handleChange}
+                    placeholder="e.g., Undergraduate"
+                    required
+                  />
                   <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>User-friendly label</p>
                 </div>
               </div>
+
               <div style={{ marginBottom: '1.25rem' }}>
                 <label className={s.formLabel}>Description</label>
-                <textarea className={s.formInput} name="description" value={formData.description} onChange={handleChange} rows={4} placeholder="Describe what this schema is used for…" style={{ resize: 'vertical' }} />
+                <textarea
+                  className={s.formInput}
+                  name="description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  rows={4}
+                  placeholder="Describe what this schema is used for…"
+                  style={{ resize: 'vertical' }}
+                />
               </div>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.88rem', color: '#374151', fontWeight: 500 }}>
+                  <input
+                    type="checkbox"
+                    name="is_active"
+                    checked={formData.is_active}
+                    onChange={handleChange}
+                    style={{ width: 16, height: 16, accentColor: '#2563eb' }}
+                  />
+                  Active schema
+                </label>
+                <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0 1.5rem' }}>Inactive schemas are hidden from student registration forms</p>
+              </div>
+
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
-                  {saving ? <><span className="spinner-border spinner-border-sm" />Creating…</> : <><i className="fas fa-save" />Create Schema</>}
+                  {saving
+                    ? <><span className="spinner-border spinner-border-sm" />Creating…</>
+                    : <><i className="fas fa-save" />Create Schema</>}
                 </button>
-                <Link href="/admin/dashboard/employees/schemas" className={`${s.btn} ${s.btnOutline}`}>
+                <Link href="/admin/dashboard/students/schemas" className={`${s.btn} ${s.btnOutline}`}>
                   <i className="fas fa-times" />Cancel
                 </Link>
               </div>
@@ -111,28 +166,29 @@ export default function AddEmployeeSchemaPage() {
               <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
                 <i className="fas fa-info-circle" style={{ fontSize: '0.75rem' }} />
               </span>
-              About Employee Schemas
+              About Student Schemas
             </span>
           </div>
           <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
             <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: '0.75rem', lineHeight: 1.6 }}>
-              Employee schemas define the structure and fields for employee records. Each schema can have different custom fields based on your organisation&apos;s needs.
+              Student schemas define the structure and fields for student records. Each schema can have different custom fields based on your institution&apos;s requirements.
             </p>
             <div style={{ fontSize: '0.82rem', color: '#374151', marginBottom: '0.75rem' }}>
               <strong style={{ display: 'block', marginBottom: '0.4rem' }}>Common schema types:</strong>
               <ul style={{ paddingLeft: '1.1rem', lineHeight: 1.9, margin: 0 }}>
-                <li><strong>Basic Employee</strong> — Standard information</li>
-                <li><strong>Manager</strong> — Extra fields for management</li>
-                <li><strong>Contractor</strong> — Contract-specific fields</li>
-                <li><strong>Intern</strong> — Simplified fields</li>
+                <li><strong>Undergraduate</strong> — Standard degree programme</li>
+                <li><strong>Postgraduate</strong> — Masters &amp; PhD fields</li>
+                <li><strong>Diploma</strong> — Shorter qualification fields</li>
+                <li><strong>Exchange</strong> — Visiting student fields</li>
               </ul>
             </div>
             <div className={`${s.alert} ${s.alertInfo}`} style={{ marginBottom: 0 }}>
               <i className="fas fa-info-circle" />
-              <span style={{ fontSize: '0.78rem' }}>After creating, add custom fields to capture specific information for this employee type.</span>
+              <span style={{ fontSize: '0.78rem' }}>After creating, add custom fields to capture specific information for this student type.</span>
             </div>
           </div>
         </div>
+
       </div>
     </div>
   );

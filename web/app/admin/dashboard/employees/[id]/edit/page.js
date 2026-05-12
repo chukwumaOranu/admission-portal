@@ -1,447 +1,228 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useEmployees, useDepartments } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
 
 export default function EditEmployeePage() {
   const router = useRouter();
   const params = useParams();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state
-  const { 
-    employees, 
-    schemas,
-    loading: employeesLoading, 
-    fetchEmployees, 
-    fetchEmployeeSchemas,
-    updateEmployee 
-  } = useEmployees();
-  const { departments, loading: departmentsLoading, fetchDepartments } = useDepartments();
-  
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(false);
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { employees, schemas, loading: employeesLoading, fetchEmployees, fetchEmployeeSchemas, updateEmployee } = useEmployees();
+  const { departments, fetchDepartments } = useDepartments();
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState('');
+  const [notice, setNotice]   = useState('');
+  const loadedRef = useRef(false);
+
   const [formData, setFormData] = useState({
-    employee_id: '',
-    schema_id: '',
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone: '',
-    department_id: '',
-    position: '',
-    employment_date: '',
-    status: 'active'
+    employee_id: '', schema_id: '', first_name: '', last_name: '',
+    email: '', phone: '', department_id: '', position: '',
+    employment_date: '', status: 'active',
   });
 
   const fetchEmployeeDirectly = useCallback(async () => {
     try {
-      setIsLoading(true);
-      setError(null);
-      const response = await apiService.get(API_ENDPOINTS.EMPLOYEES.GET_BY_ID(params.id));
-      const emp = response.data;
-      
+      setLoading(true); setError('');
+      const res = await apiService.get(API_ENDPOINTS.EMPLOYEES.GET_BY_ID(params.id));
+      const emp = res.data;
       setFormData({
-        employee_id: emp.employee_id || '',
-        schema_id: emp.schema_id || '',
-        first_name: emp.first_name || '',
-        last_name: emp.last_name || '',
-        email: emp.email || '',
-        phone: emp.phone || '',
-        department_id: emp.department_id || '',
-        position: emp.position || '',
-        employment_date: emp.employment_date ? emp.employment_date.split('T')[0] : '',
-        status: emp.status || 'active'
+        employee_id:      emp.employee_id || '',
+        schema_id:        emp.schema_id || '',
+        first_name:       emp.first_name || '',
+        last_name:        emp.last_name || '',
+        email:            emp.email || '',
+        phone:            emp.phone || '',
+        department_id:    emp.department_id || '',
+        position:         emp.position || '',
+        employment_date:  emp.employment_date ? emp.employment_date.split('T')[0] : '',
+        status:           emp.status || 'active',
       });
-    } catch (err) {
-      console.error('Error fetching employee:', err);
-      setError('Failed to fetch employee details');
-    } finally {
-      setIsLoading(false);
-    }
+    } catch { setError('Failed to load employee details'); }
+    finally { setLoading(false); }
   }, [params.id]);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      // Fetch from Redux if not already loaded
-      if (employees.length === 0) {
-        fetchEmployees();
-      }
-      if (departments.length === 0) {
-        fetchDepartments();
-      }
-      if (schemas.length === 0) {
-        fetchEmployeeSchemas();
-      }
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchEmployees(); fetchDepartments(); fetchEmployeeSchemas();
     }
-  }, [
-    status,
-    session,
-    employees.length,
-    departments.length,
-    schemas.length,
-    fetchEmployees,
-    fetchDepartments,
-    fetchEmployeeSchemas
-  ]);
+  }, [status, session?.user?.id, fetchEmployees, fetchDepartments, fetchEmployeeSchemas]);
 
   useEffect(() => {
-    // Find employee from Redux store
     if (params.id && employees.length > 0) {
-      const emp = employees.find(e => e.id === parseInt(params.id));
+      const emp = employees.find(e => e.id === parseInt(params.id, 10));
       if (emp) {
         setFormData({
-          employee_id: emp.employee_id || '',
-          schema_id: emp.schema_id || '',
-          first_name: emp.first_name || '',
-          last_name: emp.last_name || '',
-          email: emp.email || '',
-          phone: emp.phone || '',
-          department_id: emp.department_id || '',
-          position: emp.position || '',
+          employee_id:     emp.employee_id || '',
+          schema_id:       emp.schema_id || '',
+          first_name:      emp.first_name || '',
+          last_name:       emp.last_name || '',
+          email:           emp.email || '',
+          phone:           emp.phone || '',
+          department_id:   emp.department_id || '',
+          position:        emp.position || '',
           employment_date: emp.employment_date ? emp.employment_date.split('T')[0] : '',
-          status: emp.status || 'active'
+          status:          emp.status || 'active',
         });
-        setIsLoading(false);
+        setLoading(false);
+      } else if (!employeesLoading) {
+        fetchEmployeeDirectly();
       }
-    } else if (params.id && !employeesLoading) {
-      // If employee not in Redux, fetch directly
+    } else if (params.id && !employeesLoading && employees.length === 0) {
       fetchEmployeeDirectly();
     }
-  }, [params.id, employees, employeesLoading, fetchEmployeeDirectly]);
+  }, [employees, employeesLoading, params.id, fetchEmployeeDirectly]);
 
-
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    setError(null);
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (error) setError('');
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    
-    try {
-      setIsSaving(true);
-      setError(null);
-
-      await updateEmployee(params.id, formData);
-      
-      setSuccess(true);
-      alert('Employee updated successfully!');
-      
-      setTimeout(() => {
-        router.push(`/admin/dashboard/employees/${params.id}`);
-      }, 1500);
-      
-    } catch (err) {
-      console.error('Error updating employee:', err);
-      setError(err.message || 'Failed to update employee');
-    } finally {
-      setIsSaving(false);
-    }
+    setSaving(true); setError(''); setNotice('');
+    updateEmployee(params.id, formData);
+    setNotice('Employee updated successfully!');
+    setTimeout(() => router.push(`/admin/dashboard/employees/${params.id}`), 1500);
+    setSaving(false);
   };
 
-  // Show loading while checking authentication
-  if (status === 'loading' || isLoading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading || loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Redirect if not authenticated
-  if (status === 'unauthenticated') {
-    window.location.href = '/login';
-    return null;
-  }
-
-  // Check permissions
   if (!hasPermission('employee.update')) {
     return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Access Denied</h4>
-        <p>You don&apos;t have permission to edit employees.</p>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to edit employees.</div>
       </div>
     );
   }
 
+  const field = (label, child, hint) => (
+    <div style={{ marginBottom: '1rem' }}>
+      <label className={s.formLabel}>{label}</label>
+      {child}
+      {hint && <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>{hint}</p>}
+    </div>
+  );
+
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-edit text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#e0f2fe', color: '#0891b2' }}><i className="fas fa-user-edit" /></span>
             Edit Employee
-          </h2>
-          <p className="text-muted mb-0">Update employee information</p>
+          </h1>
+          <p className={s.pageSub}>Update employee information</p>
         </div>
-        <Link 
-          href={`/admin/dashboard/employees/${params.id}`}
-          className="btn btn-outline-secondary"
-        >
-          <i className="fas fa-arrow-left me-2"></i>
-          Back to Details
-        </Link>
+        <div className={s.pageActions}>
+          <Link href={`/admin/dashboard/employees/${params.id}`} className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Back
+          </Link>
+        </div>
       </div>
 
-      {/* Success Alert */}
-      {success && (
-        <div className="alert alert-success alert-dismissible fade show" role="alert">
-          <i className="fas fa-check-circle me-2"></i>
-          Employee updated successfully! Redirecting...
-          <button type="button" className="btn-close" onClick={() => setSuccess(false)}></button>
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}</div>}
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
-        </div>
-      )}
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
-      {/* Form */}
-      <div className="row">
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-primary text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-user me-2"></i>
+          {/* Left: form */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                  <i className="fas fa-user" style={{ fontSize: '0.75rem' }} />
+                </span>
                 Employee Information
-              </h5>
+              </span>
             </div>
-            <div className="card-body">
-              <form onSubmit={handleSubmit}>
-                <div className="row">
-                  {/* Employee ID */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Employee ID <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="employee_id"
-                      value={formData.employee_id}
-                      onChange={handleInputChange}
-                      required
-                      disabled
-                    />
-                    <small className="text-muted">Employee ID cannot be changed</small>
-                  </div>
-
-                  {/* Schema */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Employee Type <span className="text-danger">*</span>
-                    </label>
-                    <select
-                      className="form-select"
-                      name="schema_id"
-                      value={formData.schema_id}
-                      onChange={handleInputChange}
-                      required
-                    >
+            <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>{field('Employee ID', <input type="text" className={s.formInput} name="employee_id" value={formData.employee_id} disabled style={{ background: '#f1f5f9', cursor: 'not-allowed' }} />, 'Cannot be changed')}</div>
+                <div>
+                  {field('Employee Type *',
+                    <select className={s.formSelect} name="schema_id" value={formData.schema_id} onChange={handleChange} required disabled={saving}>
                       <option value="">Select Type</option>
-                      {schemas.map((schema) => (
-                        <option key={schema.id} value={schema.id}>
-                          {schema.display_name || schema.schema_name}
-                        </option>
-                      ))}
+                      {schemas.map(sc => <option key={sc.id} value={sc.id}>{sc.display_name || sc.schema_name}</option>)}
                     </select>
-                  </div>
-
-                  {/* First Name */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      First Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="first_name"
-                      value={formData.first_name}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-
-                  {/* Last Name */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Last Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="last_name"
-                      value={formData.last_name}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-
-                  {/* Email */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Email</label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-
-                  {/* Phone */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Phone</label>
-                    <input
-                      type="tel"
-                      className="form-control"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-
-                  {/* Department */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Department</label>
-                    <select
-                      className="form-select"
-                      name="department_id"
-                      value={formData.department_id}
-                      onChange={handleInputChange}
-                    >
+                  )}
+                </div>
+                <div>{field('First Name *', <input type="text"  className={s.formInput} name="first_name" value={formData.first_name} onChange={handleChange} required disabled={saving} />)}</div>
+                <div>{field('Last Name *',  <input type="text"  className={s.formInput} name="last_name"  value={formData.last_name}  onChange={handleChange} required disabled={saving} />)}</div>
+                <div>{field('Email',        <input type="email" className={s.formInput} name="email"      value={formData.email}      onChange={handleChange} disabled={saving} />)}</div>
+                <div>{field('Phone',        <input type="tel"   className={s.formInput} name="phone"      value={formData.phone}      onChange={handleChange} disabled={saving} />)}</div>
+                <div>
+                  {field('Department',
+                    <select className={s.formSelect} name="department_id" value={formData.department_id} onChange={handleChange} disabled={saving}>
                       <option value="">Select Department</option>
-                      {departments.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
+                      {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
-                  </div>
-
-                  {/* Position */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Position</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="position"
-                      value={formData.position}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-
-                  {/* Employment Date */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Employment Date</label>
-                    <input
-                      type="date"
-                      className="form-control"
-                      name="employment_date"
-                      value={formData.employment_date}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-
-                  {/* Status */}
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Status</label>
-                    <select
-                      className="form-select"
-                      name="status"
-                      value={formData.status}
-                      onChange={handleInputChange}
-                    >
+                  )}
+                </div>
+                <div>{field('Position', <input type="text" className={s.formInput} name="position" value={formData.position} onChange={handleChange} disabled={saving} />)}</div>
+                <div>{field('Employment Date', <input type="date" className={s.formInput} name="employment_date" value={formData.employment_date} onChange={handleChange} disabled={saving} />)}</div>
+                <div>
+                  {field('Status',
+                    <select className={s.formSelect} name="status" value={formData.status} onChange={handleChange} disabled={saving}>
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
                       <option value="on_leave">On Leave</option>
                       <option value="terminated">Terminated</option>
                     </select>
-                  </div>
+                  )}
                 </div>
+              </div>
 
-                {/* Submit Buttons */}
-                <div className="d-flex gap-2 mt-4">
-                  <button
-                    type="submit"
-                    className="btn btn-primary-custom"
-                    disabled={isSaving}
-                  >
-                    {isSaving ? (
-                      <>
-                        <i className="fas fa-spinner fa-spin me-2"></i>
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-save me-2"></i>
-                        Save Changes
-                      </>
-                    )}
-                  </button>
-                  
-                  <Link
-                    href={`/admin/dashboard/employees/${params.id}`}
-                    className="btn btn-outline-secondary"
-                  >
-                    Cancel
-                  </Link>
-                </div>
-              </form>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
+                  {saving ? <><span className="spinner-border spinner-border-sm" />Saving…</> : <><i className="fas fa-save" />Save Changes</>}
+                </button>
+                <button type="button" className={`${s.btn} ${s.btnOutline}`} onClick={() => router.back()} disabled={saving}>
+                  <i className="fas fa-times" />Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Help & Info */}
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Edit Information
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="alert alert-info mb-3">
-                <h6><i className="fas fa-lightbulb me-2"></i>Tips:</h6>
-                <ul className="mb-0 ps-3">
+          {/* Sidebar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                    <i className="fas fa-lightbulb" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  Tips
+                </span>
+              </div>
+              <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+                <ul style={{ fontSize: '0.82rem', color: '#374151', paddingLeft: '1.1rem', lineHeight: 1.9, margin: 0 }}>
                   <li>Employee ID cannot be changed</li>
                   <li>Email changes don&apos;t affect login username</li>
                   <li>Assign roles via User Management page</li>
+                  <li>Changes take effect immediately</li>
                 </ul>
-              </div>
-
-              <div className="alert alert-warning mb-0">
-                <h6><i className="fas fa-exclamation-triangle me-2"></i>Note:</h6>
-                <p className="mb-0">
-                  Changes will take effect immediately. Make sure all information is correct before saving.
-                </p>
               </div>
             </div>
           </div>
+
         </div>
-      </div>
+      </form>
     </div>
   );
 }

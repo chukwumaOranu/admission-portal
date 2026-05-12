@@ -1,251 +1,288 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useApplications } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
 import { usePermissions } from '@/hooks/usePermissions';
+import s from '@/styles/admin-portal.module.css';
+
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const initials = (name) => (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
 export default function AssignExamsPage() {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const { applications, fetchApplications } = useApplications();
   const { hasPermission } = usePermissions();
 
-  const [entryDates, setEntryDates] = useState([]);
-  const [calendar, setCalendar] = useState([]);
-  const [selectedApps, setSelectedApps] = useState([]);
-  const [selectedEntryDateId, setSelectedEntryDateId] = useState('');
-  const [autoAssign, setAutoAssign] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [entryDates, setEntryDates]         = useState([]);
+  const [calendar, setCalendar]             = useState([]);
+  const [selectedApps, setSelectedApps]     = useState([]);
+  const [selectedEntryDateId, setSelected]  = useState('');
+  const [autoAssign, setAutoAssign]         = useState(true);
+  const [busy, setBusy]                     = useState(false);
+  const [error, setError]                   = useState('');
+  const [notice, setNotice]                 = useState('');
+  const loadedRef = useRef(false);
 
-  const canReadCalendar = hasPermission('exam_calendar.read');
-  const canManageAssignments = hasPermission('exam_assignment.manage');
+  const canReadCalendar    = hasPermission('exam_calendar.read');
+  const canManageAssign    = hasPermission('exam_assignment.manage');
 
-  const eligibleApplications = useMemo(
-    () => applications.filter((app) => app.status === 'approved' && app.payment_status === 'paid'),
+  const eligible = useMemo(
+    () => applications.filter(a => a.status === 'approved' && a.payment_status === 'paid'),
     [applications]
   );
 
   const loadExamData = useCallback(async () => {
     if (!canReadCalendar) return;
     try {
-      const [datesRes, calendarRes] = await Promise.all([
+      const [datesRes, calRes] = await Promise.all([
         apiService.get(API_ENDPOINTS.EXAMS.ENTRY_DATES.AVAILABLE_LIST),
-        apiService.get(API_ENDPOINTS.EXAMS.ENTRY_DATES.CALENDAR_AVAILABILITY)
+        apiService.get(API_ENDPOINTS.EXAMS.ENTRY_DATES.CALENDAR_AVAILABILITY),
       ]);
       setEntryDates(datesRes.data || []);
-      setCalendar(calendarRes.data || []);
-    } catch (loadError) {
-      setError(loadError.message || 'Failed to load exam date data');
-    }
+      setCalendar(calRes.data || []);
+    } catch (e) { setError(e.message || 'Failed to load exam data'); }
   }, [canReadCalendar]);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true;
       fetchApplications();
       loadExamData();
     }
-  }, [status, fetchApplications, loadExamData]);
+  }, [status, session?.user?.id, fetchApplications, loadExamData]);
 
-  const handleSelectAll = (checked) => {
-    if (checked) {
-      setSelectedApps(eligibleApplications.map((app) => app.id));
-    } else {
-      setSelectedApps([]);
-    }
-  };
+  const toggleAll = (checked) => setSelectedApps(checked ? eligible.map(a => a.id) : []);
+  const toggle = (id) => setSelectedApps(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
 
-  const toggleApp = (appId) => {
-    setSelectedApps((prev) => (prev.includes(appId) ? prev.filter((id) => id !== appId) : [...prev, appId]));
-  };
-
-  const assignExamDates = async () => {
-    if (!canManageAssignments) return;
-    if (selectedApps.length === 0) {
-      setError('Select at least one application');
-      return;
-    }
-    if (!autoAssign && !selectedEntryDateId) {
-      setError('Select an exam date or enable auto-assignment');
-      return;
-    }
-
+  const handleAssign = async () => {
+    if (!canManageAssign) return;
+    if (!selectedApps.length) { setError('Select at least one application.'); return; }
+    if (!autoAssign && !selectedEntryDateId) { setError('Select an exam date or enable auto-assignment.'); return; }
     try {
-      setBusy(true);
-      setError('');
-      setNotice('');
-
-      const response = await apiService.post(API_ENDPOINTS.APPLICATIONS.ASSIGN_EXAM, {
+      setBusy(true); setError(''); setNotice('');
+      const res = await apiService.post(API_ENDPOINTS.APPLICATIONS.ASSIGN_EXAM, {
         applicant_ids: selectedApps,
         exam_date_id: selectedEntryDateId || null,
-        auto_assign_next_available: autoAssign
+        auto_assign_next_available: autoAssign,
       });
-
-      const assigned = response.data?.total_assigned || 0;
-      const failed = response.data?.total_failed || 0;
-      setNotice(`Exam assignment completed. Assigned: ${assigned}, Failed: ${failed}`);
+      const assigned = res.data?.total_assigned || 0;
+      const failed   = res.data?.total_failed   || 0;
+      setNotice(`Assignment complete — Assigned: ${assigned}, Failed: ${failed}`);
       setSelectedApps([]);
       await Promise.all([fetchApplications(), loadExamData()]);
-    } catch (assignError) {
-      setError(assignError.message || 'Failed to assign exam dates');
-    } finally {
-      setBusy(false);
-    }
+    } catch (e) { setError(e.message || 'Failed to assign exam dates'); }
+    finally { setBusy(false); }
   };
 
-  if (status === 'loading') {
-    return <div className="p-4">Loading...</div>;
-  }
+  if (status === 'loading') return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
 
   if (!canReadCalendar) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-warning mt-4">You do not have permission to view exam calendar assignments.</div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to view exam assignments.</div>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-calendar-check text-primary me-2"></i>
-            Exam Date Calendar Assignment
-          </h2>
-          <p className="text-muted mb-0">Assign approved & paid applications to exam dates with capacity control</p>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-calendar-check" /></span>
+            Assign Exam Dates
+          </h1>
+          <p className={s.pageSub}>Assign approved &amp; paid applicants to examination slots</p>
         </div>
-        <Link href="/admin/dashboard/exams/entry-dates" className="btn btn-outline-secondary">
-          Manage Exam Dates
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/exams/entry-dates" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-calendar-alt" />Manage Entry Dates
+          </Link>
+        </div>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')}  style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
 
-      <div className="row g-4">
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <h5>Assignment Options</h5>
-              <div className="form-check my-3">
-                <input
-                  id="autoAssign"
-                  className="form-check-input"
-                  type="checkbox"
-                  checked={autoAssign}
-                  onChange={(e) => setAutoAssign(e.target.checked)}
-                />
-                <label htmlFor="autoAssign" className="form-check-label">
-                  Auto-assign next available date when full
-                </label>
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '1.5rem', alignItems: 'start' }}>
+
+        {/* Left panel */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* Assignment options */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-cog" style={{ color: '#d97706' }} />Assignment Options</span>
+            </div>
+            <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, color: '#374151' }}>
+                <input type="checkbox" checked={autoAssign} onChange={e => setAutoAssign(e.target.checked)} style={{ width: 16, height: 16 }} />
+                Auto-assign next available date
+              </label>
+              <div>
+                <label className={s.formLabel}>Preferred exam slot</label>
+                <select className={s.formSelect} disabled={autoAssign} value={selectedEntryDateId} onChange={e => setSelected(e.target.value)}>
+                  <option value="">Any available slot</option>
+                  {entryDates.map(ed => (
+                    <option key={ed.id} value={ed.id}>
+                      {fmtDate(ed.exam_date)} {ed.exam_time} — {ed.exam_venue} ({ed.current_registrations}/{ed.max_capacity})
+                    </option>
+                  ))}
+                </select>
               </div>
-              <label className="form-label">Preferred exam date slot</label>
-              <select
-                className="form-select"
-                disabled={autoAssign}
-                value={selectedEntryDateId}
-                onChange={(e) => setSelectedEntryDateId(e.target.value)}
+              <button
+                className={`${s.btn} ${s.btnPrimary}`}
+                style={{ width: '100%', justifyContent: 'center' }}
+                disabled={busy || !canManageAssign || !selectedApps.length}
+                onClick={handleAssign}
               >
-                <option value="">Select exam slot</option>
-                {entryDates.map((entryDate) => (
-                  <option key={entryDate.id} value={entryDate.id}>
-                    {new Date(entryDate.exam_date).toLocaleDateString()} {entryDate.exam_time} - {entryDate.exam_venue} (
-                    {entryDate.current_registrations}/{entryDate.max_capacity})
-                  </option>
-                ))}
-              </select>
-              <button className="btn btn-primary w-100 mt-3" disabled={busy || !canManageAssignments} onClick={assignExamDates}>
-                Assign to Selected ({selectedApps.length})
+                {busy
+                  ? <><span className="spinner-border spinner-border-sm" />Assigning…</>
+                  : <><i className="fas fa-check" />Assign {selectedApps.length} Applicant{selectedApps.length !== 1 ? 's' : ''}</>}
               </button>
             </div>
           </div>
 
-          <div className="card border-0 shadow-sm mt-4">
-            <div className="card-body">
-              <h5 className="mb-3">Calendar Capacity</h5>
-              <ul className="list-group list-group-flush">
-                {calendar.map((day) => (
-                  <li key={day.exam_date} className="list-group-item px-0 d-flex justify-content-between align-items-center">
-                    <div>
-                      <div className="fw-semibold">{new Date(day.exam_date).toLocaleDateString()}</div>
-                      <small className="text-muted">{day.open_slots} open slots</small>
+          {/* Calendar capacity */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-chart-bar" style={{ color: '#2563eb' }} />Calendar Capacity</span>
+            </div>
+            <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.875rem' }}>
+              {calendar.length === 0 ? (
+                <p style={{ fontSize: '0.82rem', color: '#9ca3af', textAlign: 'center', padding: '0.5rem 0' }}>No active exam dates</p>
+              ) : calendar.map(day => {
+                const pct = day.total_capacity ? Math.round(day.used_capacity / day.total_capacity * 100) : 0;
+                return (
+                  <div key={day.exam_date}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.25rem' }}>
+                      <span style={{ fontWeight: 600, color: '#374151' }}>{fmtDate(day.exam_date)}</span>
+                      <span style={{ color: '#6b7280' }}>{day.used_capacity}/{day.total_capacity}</span>
                     </div>
-                    <span className="badge bg-light text-dark">
-                      {day.used_capacity}/{day.total_capacity}
-                    </span>
-                  </li>
-                ))}
-                {calendar.length === 0 && <li className="list-group-item px-0 text-muted">No active exam dates</li>}
-              </ul>
+                    <div style={{ height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: pct >= 90 ? '#dc2626' : pct >= 60 ? '#d97706' : '#059669', borderRadius: 999 }} />
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.15rem' }}>{day.open_slots} open slot{day.open_slots !== 1 ? 's' : ''}</div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <h5 className="mb-0">Eligible Applications ({eligibleApplications.length})</h5>
-                <div className="form-check">
-                  <input
-                    id="selectAllEligible"
-                    type="checkbox"
-                    className="form-check-input"
-                    checked={selectedApps.length === eligibleApplications.length && eligibleApplications.length > 0}
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                  />
-                  <label htmlFor="selectAllEligible" className="form-check-label">Select all</label>
+        {/* Right: eligible applications */}
+        <div className={s.card} style={{ marginBottom: 0 }}>
+          <div style={{ padding: '0.875rem 1.25rem', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className={s.cardTitle} style={{ margin: 0 }}>
+              <i className="fas fa-file-alt" style={{ color: '#2563eb' }} />Eligible Applications
+              <span className={`${s.badge} ${s.badgeInfo}`} style={{ marginLeft: '0.5rem' }}>{eligible.length}</span>
+            </span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', color: '#6b7280', cursor: 'pointer' }}>
+              <input type="checkbox" className={s.checkbox}
+                checked={selectedApps.length === eligible.length && eligible.length > 0}
+                onChange={e => toggleAll(e.target.checked)}
+              />
+              Select all
+            </label>
+          </div>
+
+          {selectedApps.length > 0 && (
+            <div className={s.bulkBar}>
+              <span className={s.bulkBarInfo}><i className="fas fa-check-square" />{selectedApps.length} selected</span>
+              <button onClick={() => setSelectedApps([])} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}>Deselect all</button>
+            </div>
+          )}
+
+          {/* Desktop table */}
+          <div className={s.tableWrap}>
+            <table className={s.table}>
+              <thead>
+                <tr>
+                  <th style={{ width: 40, paddingLeft: '1.25rem' }}></th>
+                  <th>App #</th>
+                  <th>Applicant</th>
+                  <th>Email</th>
+                  <th>Exam Date</th>
+                  <th style={{ paddingRight: '1.25rem' }}>Venue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {eligible.length === 0 ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: '#9ca3af', fontSize: '0.875rem' }}>No approved + paid applications available.</td></tr>
+                ) : eligible.map(app => (
+                  <tr key={app.id}>
+                    <td style={{ paddingLeft: '1.25rem' }}>
+                      <input type="checkbox" className={s.checkbox} checked={selectedApps.includes(app.id)} onChange={() => toggle(app.id)} />
+                    </td>
+                    <td><span className={s.tdMono}>{app.application_number || `APP-${app.id}`}</span></td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                        <span className={s.tdName}>{app.applicant_name || '—'}</span>
+                      </div>
+                    </td>
+                    <td><span className={s.tdSub}>{app.applicant_email || '—'}</span></td>
+                    <td><span className={s.tdSub}>{app.exam_date ? fmtDate(app.exam_date) : <span style={{ color: '#9ca3af' }}>Not assigned</span>}</span></td>
+                    <td style={{ paddingRight: '1.25rem' }}><span className={s.tdSub}>{app.exam_venue || '—'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className={s.mobileList}>
+            {eligible.map(app => (
+              <div key={app.id} className={s.mobileCard}>
+                <div className={s.mobileCardHead}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input type="checkbox" className={s.checkbox} checked={selectedApps.includes(app.id)} onChange={() => toggle(app.id)} />
+                    <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                    <div>
+                      <div className={s.tdName}>{app.applicant_name || '—'}</div>
+                      <div className={s.tdEmail}>{app.applicant_email || '—'}</div>
+                    </div>
+                  </div>
+                  <span className={s.tdMono} style={{ fontSize: '0.75rem' }}>{app.application_number || `APP-${app.id}`}</span>
+                </div>
+                <div className={s.mobileCardBody}>
+                  <div className={s.mobileCardRow}>
+                    <span className={s.mobileCardKey}>Exam Date</span>
+                    <span className={s.mobileCardVal}>{app.exam_date ? fmtDate(app.exam_date) : 'Not assigned'}</span>
+                  </div>
+                  <div className={s.mobileCardRow}>
+                    <span className={s.mobileCardKey}>Venue</span>
+                    <span className={s.mobileCardVal}>{app.exam_venue || '—'}</span>
+                  </div>
                 </div>
               </div>
-
-              <div className="table-responsive">
-                <table className="table table-hover">
-                  <thead>
-                    <tr>
-                      <th></th>
-                      <th>Application #</th>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Current Exam Date</th>
-                      <th>Venue</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {eligibleApplications.map((app) => (
-                      <tr key={app.id}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            className="form-check-input"
-                            checked={selectedApps.includes(app.id)}
-                            onChange={() => toggleApp(app.id)}
-                          />
-                        </td>
-                        <td>{app.application_number}</td>
-                        <td>{app.applicant_name}</td>
-                        <td>{app.applicant_email}</td>
-                        <td>{app.exam_date ? new Date(app.exam_date).toLocaleDateString() : '-'}</td>
-                        <td>{app.exam_venue || '-'}</td>
-                      </tr>
-                    ))}
-                    {eligibleApplications.length === 0 && (
-                      <tr>
-                        <td colSpan="6" className="text-center text-muted py-4">
-                          No approved + paid applications available for assignment
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            ))}
+            {eligible.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af', fontSize: '0.875rem' }}>No eligible applications.</div>
+            )}
           </div>
+
+          {eligible.length > 0 && (
+            <div className={s.cardFooter}>
+              <span>Showing <strong>{eligible.length}</strong> eligible application{eligible.length !== 1 ? 's' : ''}</span>
+            </div>
+          )}
         </div>
       </div>
+
+      <style jsx>{`
+        @media (max-width: 991px) {
+          div[style*="grid-template-columns: 320px 1fr"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

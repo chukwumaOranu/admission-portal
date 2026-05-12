@@ -4,272 +4,163 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePayments } from '@/hooks/useRedux';
 import apiService from '@/services/api';
+import s from '@/styles/student-portal.module.css';
+
+const STATUS_CFG = {
+  success:   { cls: s.badgeApproved,  icon: 'fa-check-circle', text: 'Successful' },
+  pending:   { cls: s.badgePending,   icon: 'fa-clock',        text: 'Pending' },
+  failed:    { cls: s.badgeFailed,    icon: 'fa-times-circle', text: 'Failed' },
+  cancelled: { cls: s.badgeCancelled, icon: 'fa-ban',          text: 'Cancelled' },
+};
+
+function PayBadge({ status }) {
+  const b = STATUS_CFG[status] || STATUS_CFG.pending;
+  return <span className={`${s.badge} ${b.cls}`}><i className={`fas ${b.icon}`} />{b.text}</span>;
+}
+
+const fmt = (d) => new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 export default function PaymentHistoryPage() {
   const { payments, loading, error, fetchMyPayments } = usePayments();
-  
-  // State for invoice download
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
-  
-  useEffect(() => {
-    fetchMyPayments();
-  }, [fetchMyPayments]);
 
-  const getStatusBadge = (status) => {
-    const badges = {
-      'success': { color: 'success', icon: 'check-circle', text: 'Successful' },
-      'pending': { color: 'warning', icon: 'clock', text: 'Pending' },
-      'failed': { color: 'danger', icon: 'times-circle', text: 'Failed' },
-      'cancelled': { color: 'secondary', icon: 'ban', text: 'Cancelled' }
-    };
-    
-    const badge = badges[status] || badges['pending'];
-    
-    return (
-      <span className={`badge bg-${badge.color}`}>
-        <i className={`fas fa-${badge.icon} me-1`}></i>
-        {badge.text}
-      </span>
-    );
-  };
+  useEffect(() => { fetchMyPayments(); }, [fetchMyPayments]);
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const handleDownloadInvoice = async (transactionReference) => {
+  const handleDownloadInvoice = async (ref) => {
     try {
-      setDownloadingInvoice(transactionReference);
-      
-      // Generate invoice using the new API
-      const response = await apiService.get(
-        `/payments/invoice/${transactionReference}`,
-        { responseType: 'blob' }
-      );
-      
-      // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      setDownloadingInvoice(ref);
+      const res = await apiService.get(`/payments/invoice/${ref}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `payment-invoice-${transactionReference}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      link.href = url; link.download = `payment-invoice-${ref}.pdf`;
+      document.body.appendChild(link); link.click(); link.remove();
       window.URL.revokeObjectURL(url);
-      
-    } catch (error) {
-      console.error('Error downloading invoice:', error);
-      alert('Failed to download invoice. Please try again.');
-    } finally {
-      setDownloadingInvoice(null);
-    }
+    } catch { alert('Failed to download invoice. Please try again.'); }
+    finally { setDownloadingInvoice(null); }
   };
+
+  const successful = payments.filter((p) => p.payment_status === 'success');
+  const totalPaid = successful.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+
+  const STATS = [
+    { label: 'Successful', value: successful.length, color: '#059669', icon: 'fa-check-circle' },
+    { label: 'Pending',    value: payments.filter((p) => p.payment_status === 'pending').length, color: '#d97706', icon: 'fa-clock' },
+    { label: 'Failed',     value: payments.filter((p) => p.payment_status === 'failed').length,  color: '#dc2626', icon: 'fa-times-circle' },
+    { label: 'Total Paid', value: `₦${totalPaid.toLocaleString()}`, color: '#1e3a5f', icon: 'fa-naira-sign' },
+  ];
 
   if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="spinner-border text-success" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status"><span className="visually-hidden">Loading…</span></div></div>;
   }
 
   if (error) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-danger">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          <strong>Error loading payment history:</strong> {error}
-          <br />
-          <small className="text-muted">
-            Please check the browser console for more details or contact support if the problem persists.
-          </small>
-        </div>
-        <div className="text-center mt-4">
-          <button 
-            className="btn btn-outline-primary"
-            onClick={() => fetchMyPayments()}
-          >
-            <i className="fas fa-refresh me-2"></i>
-            Try Again
-          </button>
-        </div>
+      <div className={s.wrap}>
+        <div className={`${s.alertDanger} mb-4`}><i className="fas fa-exclamation-triangle me-2" />{error}</div>
+        <button className={s.btnOutline} onClick={() => fetchMyPayments()}><i className="fas fa-refresh" />Try Again</button>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
+    <div className={s.wrap}>
       {/* Header */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="d-flex justify-content-between align-items-center">
-            <div>
-              <h2 className="mb-1">Payment History</h2>
-              <p className="text-muted mb-0">View all your payment transactions</p>
-            </div>
-            <Link href="/admin/dashboard/student-portal/payments" className="btn btn-outline-primary">
-              <i className="fas fa-arrow-left me-2"></i>
-              Back to Payments
-            </Link>
-          </div>
+      <div className={s.pageHeader}>
+        <div>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#f0fdf4', color: '#059669' }}><i className="fas fa-history" /></span>
+            Payment History
+          </h1>
+          <p className={s.pageSub}>All your payment transactions</p>
         </div>
+        <Link href="/admin/dashboard/student-portal/payments" className={s.btnOutline}><i className="fas fa-arrow-left" />Back to Payments</Link>
       </div>
 
-      {/* Payment Stats */}
-      <div className="row mb-4">
-        <div className="col-md-3">
-          <div className="card bg-success text-white">
-            <div className="card-body text-center">
-              <i className="fas fa-check-circle fs-2 mb-2"></i>
-              <h4 className="mb-1">{payments.filter(p => p.payment_status === 'success').length}</h4>
-              <small>Successful</small>
+      {/* Stats */}
+      <div className="row g-3 mb-4">
+        {STATS.map((st) => (
+          <div key={st.label} className="col-md-3 col-6">
+            <div className={s.statCard} style={{ '--accent': st.color }}>
+              <div className={s.statLeft}>
+                <div className={s.statIcon} style={{ background: `${st.color}15`, color: st.color }}>
+                  <i className={`fas ${st.icon}`} />
+                </div>
+                <div>
+                  <div className={s.statLabel}>{st.label}</div>
+                  <div className={s.statNumber} style={{ color: st.color, fontSize: '1.4rem' }}>{st.value}</div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="col-md-3">
-          <div className="card bg-warning text-white">
-            <div className="card-body text-center">
-              <i className="fas fa-clock fs-2 mb-2"></i>
-              <h4 className="mb-1">{payments.filter(p => p.payment_status === 'pending').length}</h4>
-              <small>Pending</small>
-            </div>
-          </div>
-        </div>
-        <div className="col-md-3">
-          <div className="card bg-danger text-white">
-            <div className="card-body text-center">
-              <i className="fas fa-times-circle fs-2 mb-2"></i>
-              <h4 className="mb-1">{payments.filter(p => p.payment_status === 'failed').length}</h4>
-              <small>Failed</small>
-            </div>
-          </div>
-        </div>
-        <div className="col-md-3">
-          <div className="card bg-primary text-white">
-            <div className="card-body text-center">
-              <i className="fas fa-naira-sign fs-2 mb-2"></i>
-              <h4 className="mb-1">
-                ₦{payments
-                  .filter(p => p.payment_status === 'success')
-                  .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0)
-                  .toLocaleString()}
-              </h4>
-              <small>Total Paid</small>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Payment List */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card">
-            <div className="card-header">
-              <h5 className="mb-0">
-                <i className="fas fa-history me-2"></i>
-                Payment Transactions
-              </h5>
-            </div>
-            <div className="card-body p-0">
-              {payments.length === 0 ? (
-                <div className="text-center py-5">
-                  <i className="fas fa-receipt fs-1 text-muted mb-3"></i>
-                  <h5 className="text-muted">No Payment History</h5>
-                  <p className="text-muted">You haven&apos;t made any payments yet.</p>
-                  <Link href="/admin/dashboard/student-portal/applications" className="btn btn-primary">
-                    <i className="fas fa-plus me-2"></i>
-                    Submit Application
-                  </Link>
-                </div>
-              ) : (
-                <div className="table-responsive">
-                  <table className="table table-hover mb-0">
-                    <thead className="table-light">
-                      <tr>
-                        <th>Reference</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                        <th>Payment Method</th>
-                        <th>Date</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {payments.map((payment) => (
-                        <tr key={payment.id}>
-                          <td>
-                            <code className="text-primary">{payment.transaction_reference}</code>
-                          </td>
-                          <td>
-                            <strong className="text-success">
-                              ₦{parseFloat(payment.amount || 0).toLocaleString()}
-                            </strong>
-                          </td>
-                          <td>
-                            {getStatusBadge(payment.payment_status)}
-                          </td>
-                          <td>
-                            <span className="badge bg-light text-dark">
-                              <i className="fas fa-credit-card me-1"></i>
-                              {payment.payment_method || 'Card'}
-                            </span>
-                          </td>
-                          <td>
-                            <small className="text-muted">
-                              {formatDate(payment.created_at)}
-                            </small>
-                          </td>
-                          <td>
-                            {payment.payment_status === 'success' ? (
-                              <div className="d-flex gap-1">
-                                <Link 
-                                  href={`/admin/dashboard/student-portal/payments/receipt?reference=${payment.transaction_reference}`}
-                                  className="btn btn-sm btn-outline-success"
-                                >
-                                  <i className="fas fa-receipt me-1"></i>
-                                  View Receipt
-                                </Link>
-                                <button
-                                  className="btn btn-sm btn-outline-primary"
-                                  onClick={() => handleDownloadInvoice(payment.transaction_reference)}
-                                  disabled={downloadingInvoice === payment.transaction_reference}
-                                >
-                                  {downloadingInvoice === payment.transaction_reference ? (
-                                    <span className="spinner-border spinner-border-sm" role="status"></span>
-                                  ) : (
-                                    <i className="fas fa-download"></i>
-                                  )}
-                                </button>
-                              </div>
-                            ) : payment.payment_status === 'failed' ? (
-                              <Link 
-                                href={`/admin/dashboard/student-portal/payments/pay/${payment.applicant_id}`}
-                                className="btn btn-sm btn-outline-primary"
-                              >
-                                <i className="fas fa-redo me-1"></i>
-                                Retry Payment
-                              </Link>
-                            ) : (
-                              <span className="text-muted">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+      {/* Table */}
+      <div className={s.card}>
+        <div className={s.cardHeader}>
+          <span className={s.cardTitle}><i className="fas fa-list me-2" style={{ color: '#2563eb' }} />Transactions</span>
         </div>
+
+        {payments.length === 0 ? (
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon}><i className="fas fa-receipt" /></div>
+            <h5 className={s.emptyTitle}>No Payments Yet</h5>
+            <p className={s.emptySub}>You haven't made any payments yet.</p>
+            <Link href="/admin/dashboard/student-portal/applications" className={s.btnPrimary}><i className="fas fa-plus" />Submit Application</Link>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className={s.table}>
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>Method</th>
+                  <th>Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr key={p.id}>
+                    <td><code style={{ fontSize: '0.75rem', color: '#2563eb' }}>{p.transaction_reference}</code></td>
+                    <td><strong style={{ color: '#059669' }}>₦{parseFloat(p.amount || 0).toLocaleString()}</strong></td>
+                    <td><PayBadge status={p.payment_status} /></td>
+                    <td>
+                      <span className={`${s.badge} ${s.badgeDraft}`}><i className="fas fa-credit-card" />{p.payment_method || 'Card'}</span>
+                    </td>
+                    <td style={{ fontSize: '0.8rem', color: '#6b7280' }}>{fmt(p.created_at)}</td>
+                    <td>
+                      {p.payment_status === 'success' ? (
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <Link href={`/admin/dashboard/student-portal/payments/receipt?reference=${p.transaction_reference}`} className={`${s.btnGreen} ${s.btnSm}`}>
+                            <i className="fas fa-receipt" />Receipt
+                          </Link>
+                          <button
+                            className={`${s.btnOutline} ${s.btnSm}`}
+                            onClick={() => handleDownloadInvoice(p.transaction_reference)}
+                            disabled={downloadingInvoice === p.transaction_reference}
+                          >
+                            {downloadingInvoice === p.transaction_reference
+                              ? <span className="spinner-border spinner-border-sm" />
+                              : <i className="fas fa-download" />}
+                          </button>
+                        </div>
+                      ) : p.payment_status === 'failed' ? (
+                        <Link href={`/admin/dashboard/student-portal/payments/pay/${p.applicant_id}`} className={`${s.btnOutline} ${s.btnSm}`}>
+                          <i className="fas fa-redo" />Retry
+                        </Link>
+                      ) : (
+                        <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

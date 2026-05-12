@@ -4,7 +4,8 @@
     "paths": {
       "@/*": ["./app/*"]
     },
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "ignoreDeprecations": "6.0"
   },
   "include": [
     "app/**/*"

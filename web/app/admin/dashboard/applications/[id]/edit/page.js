@@ -1,494 +1,264 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
 import apiService from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
+
+const fmtDt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+
+const STATUS_BADGE = {
+  pending:  { cls: s.badgePending,  label: 'Pending' },
+  approved: { cls: s.badgeApproved, label: 'Approved' },
+  rejected: { cls: s.badgeRejected, label: 'Rejected' },
+  draft:    { cls: s.badgeInactive, label: 'Draft' },
+};
 
 export default function EditApplicationPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { applications, updateApplication } = useApplications();
+
   const applicationId = params.id;
-  
-  const {
-    applications,
-    loading,
-    error,
-    fetchApplications,
-    updateApplication
-  } = useApplications();
-  
+
   const [application, setApplication] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(true);
-  const [errorDetail, setErrorDetail] = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState('');
+  const [notice, setNotice]           = useState('');
+  const loadedRef = useRef(false);
+
   const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
-    middle_name: '',
-    email: '',
-    phone: '',
-    date_of_birth: '',
-    gender: '',
-    nationality: '',
-    address: '',
-    emergency_contact_name: '',
-    emergency_contact_phone: '',
-    custom_data: {}
+    first_name: '', last_name: '', middle_name: '',
+    email: '', phone: '', date_of_birth: '', gender: '', nationality: '',
+    address: '', emergency_contact_name: '', emergency_contact_phone: '',
+    custom_data: {},
   });
 
-  const populateFormData = useCallback((appData) => {
+  const populateForm = useCallback((app) => {
     setFormData({
-      first_name: appData.first_name || '',
-      last_name: appData.last_name || '',
-      middle_name: appData.middle_name || '',
-      email: appData.email || '',
-      phone: appData.phone || '',
-      date_of_birth: appData.date_of_birth ? appData.date_of_birth.split('T')[0] : '',
-      gender: appData.gender || '',
-      nationality: appData.nationality || '',
-      address: appData.address || '',
-      emergency_contact_name: appData.emergency_contact_name || '',
-      emergency_contact_phone: appData.emergency_contact_phone || '',
-      custom_data: appData.custom_data || {}
+      first_name:              app.first_name || '',
+      last_name:               app.last_name || '',
+      middle_name:             app.middle_name || '',
+      email:                   app.email || '',
+      phone:                   app.phone || '',
+      date_of_birth:           app.date_of_birth ? app.date_of_birth.split('T')[0] : '',
+      gender:                  app.gender || '',
+      nationality:             app.nationality || '',
+      address:                 app.address || '',
+      emergency_contact_name:  app.emergency_contact_name || '',
+      emergency_contact_phone: app.emergency_contact_phone || '',
+      custom_data:             app.custom_data || {},
     });
   }, []);
 
-  const loadApplicationDetail = useCallback(async () => {
+  const loadDetail = useCallback(async () => {
     try {
-      setLoadingDetail(true);
-      setErrorDetail(null);
-      
-      // First try to get from Redux state
-      const existingApp = applications.find(app => app.id == applicationId);
-      if (existingApp) {
-        setApplication(existingApp);
-        populateFormData(existingApp);
-        setLoadingDetail(false);
-        return;
-      }
-      
-      // If not found in Redux, fetch from API
-      const response = await apiService.get(`/applications/${applicationId}`);
-      const appData = response.data.data || response.data;
-      setApplication(appData);
-      populateFormData(appData);
-    } catch (error) {
-      console.error('Error loading application detail:', error);
-      setErrorDetail('Failed to load application details');
-    } finally {
-      setLoadingDetail(false);
-    }
-  }, [applications, applicationId, populateFormData]);
+      setLoading(true); setError('');
+      const found = applications.find(a => a.id == applicationId);
+      if (found) { setApplication(found); populateForm(found); return; }
+      const res = await apiService.get(`/applications/${applicationId}`);
+      const app = res.data.data || res.data;
+      setApplication(app); populateForm(app);
+    } catch { setError('Failed to load application details'); }
+    finally { setLoading(false); }
+  }, [applications, applicationId, populateForm]);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && applicationId) {
-      loadApplicationDetail();
+    if (status === 'authenticated' && session?.user?.id && applicationId && !loadedRef.current) {
+      loadedRef.current = true; loadDetail();
     }
-  }, [status, applicationId, loadApplicationDetail]);
+  }, [status, session?.user?.id, applicationId, loadDetail]);
 
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (error) setError('');
   };
 
-  const handleCustomDataChange = (key, value) => {
-    setFormData(prev => ({
-      ...prev,
-      custom_data: {
-        ...prev.custom_data,
-        [key]: value
-      }
-    }));
+  const handleCustomChange = (key, value) => {
+    setFormData(prev => ({ ...prev, custom_data: { ...prev.custom_data, [key]: value } }));
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    
-    if (!hasPermission('application.update')) {
-      alert('You do not have permission to update applications');
-      return;
-    }
-
-    try {
-      setSaving(true);
-      
-      // Prepare data for update
-      const updateData = {
-        ...formData,
-        // Convert date back to ISO string if needed
-        date_of_birth: formData.date_of_birth ? new Date(formData.date_of_birth).toISOString() : null
-      };
-
-      await updateApplication(applicationId, updateData);
-      
-      alert('Application updated successfully!');
-      router.push(`/admin/dashboard/applications/${applicationId}`);
-      
-    } catch (error) {
-      console.error('Error updating application:', error);
-      alert('Failed to update application. Please try again.');
-    } finally {
-      setSaving(false);
-    }
+    setSaving(true); setError(''); setNotice('');
+    updateApplication(applicationId, {
+      ...formData,
+      date_of_birth: formData.date_of_birth ? new Date(formData.date_of_birth).toISOString() : null,
+    });
+    setNotice('Application updated successfully!');
+    setTimeout(() => router.push(`/admin/dashboard/applications/${applicationId}`), 1500);
+    setSaving(false);
   };
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      pending: { class: 'bg-warning', text: 'Pending' },
-      approved: { class: 'bg-success', text: 'Approved' },
-      rejected: { class: 'bg-danger', text: 'Rejected' },
-      draft: { class: 'bg-secondary', text: 'Draft' }
-    };
-    
-    const config = statusConfig[status] || { class: 'bg-secondary', text: status };
-    return <span className={`badge ${config.class}`}>{config.text}</span>;
-  };
+  if (status === 'loading' || permLoading || loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
+  }
 
-  if (loadingDetail) {
+  if (!hasPermission('application.update')) {
     return (
-      <div className="container-fluid">
-        <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-        </div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to edit applications.</div>
       </div>
     );
   }
 
-  if (errorDetail || !application) {
+  if (error || !application) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-danger">
-          <h4>Error Loading Application</h4>
-          <p>{errorDetail || 'Application not found'}</p>
-          <Link href="/admin/dashboard/applications" className="btn btn-primary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Applications
-          </Link>
-        </div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error || 'Application not found.'}</div>
+        <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Applications</Link>
       </div>
     );
   }
+
+  const statusInfo = STATUS_BADGE[application.status] || { cls: s.badgeInactive, label: application.status };
+
+  const field = (label, child) => (
+    <div style={{ marginBottom: '1rem' }}>
+      <label className={s.formLabel}>{label}</label>
+      {child}
+    </div>
+  );
+
+  const capWords = (str) => str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
   return (
-    <div className="container-fluid">
-      {/* Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      <div className={s.pageHeader}>
         <div>
-          <nav aria-label="breadcrumb">
-            <ol className="breadcrumb">
-              <li className="breadcrumb-item">
-                <Link href="/admin/dashboard">Dashboard</Link>
-              </li>
-              <li className="breadcrumb-item">
-                <Link href="/admin/dashboard/applications">Applications</Link>
-              </li>
-              <li className="breadcrumb-item">
-                <Link href={`/admin/dashboard/applications/${applicationId}`}>
-                  Application #{application.application_number || application.id}
-                </Link>
-              </li>
-              <li className="breadcrumb-item active" aria-current="page">
-                Edit Application
-              </li>
-            </ol>
-          </nav>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-edit text-warning me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-edit" /></span>
             Edit Application
-          </h2>
-          <p className="text-muted mb-0">
-            {application.applicant_name || 'Unknown Applicant'} - {application.schema_display_name || application.schema_name}
-          </p>
+          </h1>
+          <p className={s.pageSub}>{application.applicant_name || 'Unknown Applicant'} — {application.schema_display_name || application.schema_name}</p>
         </div>
-        
-        <div className="btn-group">
-          <Link 
-            href={`/admin/dashboard/applications/${applicationId}`}
-            className="btn btn-outline-secondary"
-          >
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Application
+        <div className={s.pageActions}>
+          <Link href={`/admin/dashboard/applications/${applicationId}`} className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Back
           </Link>
         </div>
       </div>
 
-      {/* Application Status */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Application Status
-              </h5>
-              {getStatusBadge(application.status)}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}</div>}
+
+      {/* Application status banner */}
+      <div className={s.card} style={{ marginBottom: '1.25rem' }}>
+        <div className={s.cardHeader}>
+          <span className={s.cardTitle}><i className="fas fa-info-circle" style={{ color: '#0891b2' }} />Application Status</span>
+          <span className={`${s.badge} ${statusInfo.cls}`}>{statusInfo.label}</span>
+        </div>
+        <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+          {[
+            { label: 'Application ID',  value: <span className={`${s.badge} ${s.badgeInfo}`}>{application.application_number || `APP${application.id}`}</span> },
+            { label: 'Program',         value: application.schema_display_name || application.schema_name || '—' },
+            { label: 'Payment Status',  value: <span className={`${s.badge} ${application.payment_status === 'paid' ? s.badgePaid : s.badgePending}`}>{application.payment_status || 'pending'}</span> },
+            { label: 'Submitted',       value: fmtDt(application.created_at) },
+          ].map(row => (
+            <div key={row.label} className={s.infoRow}>
+              <span className={s.infoLabel}>{row.label}</span>
+              <span className={s.infoValue}>{row.value}</span>
             </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-3">
-                  <strong>Application ID:</strong><br />
-                  <code className="text-primary">
-                    {application.application_number || `APP${application.id}`}
-                  </code>
-                </div>
-                <div className="col-md-3">
-                  <strong>Program:</strong><br />
-                  <span className="badge bg-light text-dark">
-                    {application.schema_display_name || application.schema_name || 'N/A'}
-                  </span>
-                </div>
-                <div className="col-md-3">
-                  <strong>Payment Status:</strong><br />
-                  <span className={`badge ${application.payment_status === 'paid' ? 'bg-success' : 'bg-warning'}`}>
-                    {application.payment_status || 'pending'}
-                  </span>
-                </div>
-                <div className="col-md-3">
-                  <strong>Submitted:</strong><br />
-                  <small className="text-muted">
-                    {application.created_at ? new Date(application.created_at).toLocaleDateString() : 'N/A'}
-                  </small>
-                </div>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Edit Form */}
       <form onSubmit={handleSubmit}>
-        <div className="row">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+
           {/* Personal Information */}
-          <div className="col-md-6">
-            <div className="card">
-              <div className="card-header">
-                <h5 className="mb-0">
-                  <i className="fas fa-user me-2"></i>
-                  Personal Information
-                </h5>
-              </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">First Name *</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="first_name"
-                      value={formData.first_name}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Last Name *</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="last_name"
-                      value={formData.last_name}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Middle Name</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="middle_name"
-                      value={formData.middle_name}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Email Address *</label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Phone Number *</label>
-                    <input
-                      type="tel"
-                      className="form-control"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Date of Birth *</label>
-                    <input
-                      type="date"
-                      className="form-control"
-                      name="date_of_birth"
-                      value={formData.date_of_birth}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Gender *</label>
-                    <select
-                      className="form-select"
-                      name="gender"
-                      value={formData.gender}
-                      onChange={handleInputChange}
-                      required
-                    >
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <i className="fas fa-user" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Personal Information
+              </span>
+            </div>
+            <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>{field('First Name *',  <input type="text"  className={s.formInput} name="first_name"  value={formData.first_name}  onChange={handleChange} required disabled={saving} />)}</div>
+                <div>{field('Last Name *',   <input type="text"  className={s.formInput} name="last_name"   value={formData.last_name}   onChange={handleChange} required disabled={saving} />)}</div>
+                <div>{field('Middle Name',   <input type="text"  className={s.formInput} name="middle_name" value={formData.middle_name} onChange={handleChange} disabled={saving} />)}</div>
+                <div>{field('Email *',       <input type="email" className={s.formInput} name="email"       value={formData.email}       onChange={handleChange} required disabled={saving} />)}</div>
+                <div>{field('Phone *',       <input type="tel"   className={s.formInput} name="phone"       value={formData.phone}       onChange={handleChange} required disabled={saving} />)}</div>
+                <div>{field('Date of Birth *', <input type="date" className={s.formInput} name="date_of_birth" value={formData.date_of_birth} onChange={handleChange} required disabled={saving} />)}</div>
+                <div>
+                  {field('Gender *',
+                    <select className={s.formSelect} name="gender" value={formData.gender} onChange={handleChange} required disabled={saving}>
                       <option value="">Select Gender</option>
                       <option value="male">Male</option>
                       <option value="female">Female</option>
                     </select>
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Nationality</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="nationality"
-                      value={formData.nationality}
-                      onChange={handleInputChange}
-                    />
-                  </div>
+                  )}
                 </div>
+                <div>{field('Nationality', <input type="text" className={s.formInput} name="nationality" value={formData.nationality} onChange={handleChange} disabled={saving} />)}</div>
               </div>
             </div>
           </div>
 
-          {/* Contact Information */}
-          <div className="col-md-6">
-            <div className="card">
-              <div className="card-header">
-                <h5 className="mb-0">
-                  <i className="fas fa-map-marker-alt me-2"></i>
-                  Contact Information
-                </h5>
+          {/* Contact & Emergency */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                    <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  Contact &amp; Emergency
+                </span>
               </div>
-              <div className="card-body">
-                <div className="mb-3">
-                  <label className="form-label">Address *</label>
-                  <textarea
-                    className="form-control"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleInputChange}
-                    rows="3"
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">Emergency Contact Name *</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="emergency_contact_name"
-                    value={formData.emergency_contact_name}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">Emergency Contact Phone *</label>
-                  <input
-                    type="tel"
-                    className="form-control"
-                    name="emergency_contact_phone"
-                    value={formData.emergency_contact_phone}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
+              <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+                {field('Address *', <textarea className={s.formInput} name="address" value={formData.address} onChange={handleChange} rows={3} style={{ resize: 'vertical' }} required disabled={saving} />)}
+                {field('Emergency Contact Name *',  <input type="text" className={s.formInput} name="emergency_contact_name"  value={formData.emergency_contact_name}  onChange={handleChange} required disabled={saving} />)}
+                {field('Emergency Contact Phone *', <input type="tel"  className={s.formInput} name="emergency_contact_phone" value={formData.emergency_contact_phone} onChange={handleChange} required disabled={saving} />)}
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Custom Data */}
-        {application.custom_data && Object.keys(application.custom_data).length > 0 && (
-          <div className="row mt-4">
-            <div className="col-12">
-              <div className="card">
-                <div className="card-header">
-                  <h5 className="mb-0">
-                    <i className="fas fa-cogs me-2"></i>
+            {/* Custom Data (dynamic) */}
+            {application.custom_data && Object.keys(application.custom_data).length > 0 && (
+              <div className={s.card} style={{ marginBottom: 0 }}>
+                <div className={s.cardHeader}>
+                  <span className={s.cardTitle}>
+                    <span style={{ width: 28, height: 28, borderRadius: 6, background: '#f1f5f9', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                      <i className="fas fa-cogs" style={{ fontSize: '0.75rem' }} />
+                    </span>
                     Additional Information
-                  </h5>
+                  </span>
                 </div>
-                <div className="card-body">
-                  <div className="row">
-                    {Object.entries(application.custom_data).map(([key, value]) => (
-                      <div key={key} className="col-md-6 mb-3">
-                        <label className="form-label">{key.replace(/_/g, ' ').toUpperCase()}</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          value={formData.custom_data[key] || ''}
-                          onChange={(e) => handleCustomDataChange(key, e.target.value)}
-                        />
-                      </div>
-                    ))}
-                  </div>
+                <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+                  {Object.entries(application.custom_data).map(([key]) => (
+                    <div key={key} style={{ marginBottom: '1rem' }}>
+                      <label className={s.formLabel}>{capWords(key)}</label>
+                      <input type="text" className={s.formInput} value={formData.custom_data[key] || ''} onChange={e => handleCustomChange(key, e.target.value)} disabled={saving} />
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* Form Actions */}
-        <div className="row mt-4">
-          <div className="col-12">
-            <div className="card">
-              <div className="card-body">
-                <div className="d-flex justify-content-between">
-                  <Link 
-                    href={`/admin/dashboard/applications/${applicationId}`}
-                    className="btn btn-outline-secondary"
-                  >
-                    <i className="fas fa-times me-2"></i>
-                    Cancel
-                  </Link>
-                  
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary"
-                    disabled={saving || !hasPermission('application.update')}
-                  >
-                    {saving ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-save me-2"></i>
-                        Save Changes
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
+                {saving ? <><span className="spinner-border spinner-border-sm" />Saving…</> : <><i className="fas fa-save" />Save Changes</>}
+              </button>
+              <Link href={`/admin/dashboard/applications/${applicationId}`} className={`${s.btn} ${s.btnOutline}`}>
+                <i className="fas fa-times" />Cancel
+              </Link>
             </div>
           </div>
+
         </div>
       </form>
     </div>

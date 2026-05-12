@@ -1,518 +1,237 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useEmployees, useDepartments } from '@/hooks/useRedux';
-import CredentialsModal from '@/components/CredentialsModal';
+import s from '@/styles/admin-portal.module.css';
 
 export default function AddEmployeePage() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state
-  const { 
-    schemas,
-    loading: employeesLoading,
-    fetchEmployeeSchemas,
-    createEmployee 
-  } = useEmployees();
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { schemas, loading: employeesLoading, fetchEmployeeSchemas, createEmployee } = useEmployees();
   const { departments, fetchDepartments } = useDepartments();
-  
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [userCredentials, setUserCredentials] = useState(null);
-  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
-  const [employeeName, setEmployeeName] = useState('');
-  
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+  const [notice, setNotice] = useState('');
+  const loadedRef = useRef(false);
+
   const [formData, setFormData] = useState({
-    employee_id: '',
-    schema_id: '',
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone: '',
-    department_id: '',
-    position: '',
-    employment_date: '',
-    create_user_account: false,
-    send_welcome_email: false
+    employee_id: '', schema_id: '', first_name: '', last_name: '',
+    email: '', phone: '', department_id: '', position: '',
+    employment_date: '', create_user_account: false, send_welcome_email: false,
   });
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      // Fetch from Redux if not already loaded
-      if (departments.length === 0) {
-        fetchDepartments();
-      }
-      if (schemas.length === 0) {
-        fetchEmployeeSchemas();
-      }
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchEmployeeSchemas(); fetchDepartments();
     }
-  }, [status, session?.user?.id, session?.accessToken, departments.length, schemas.length, fetchDepartments, fetchEmployeeSchemas]);
+  }, [status, session?.user?.id, fetchEmployeeSchemas, fetchDepartments]);
 
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.replace('/login');
-    }
-  }, [status, router]);
-
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-    setError('');
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    if (error) setError('');
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setIsLoading(true);
-    setError('');
-    
-    // Validation
     if (!formData.employee_id || !formData.schema_id || !formData.first_name || !formData.last_name) {
-      setError('Please fill in all required fields: Employee ID, Employee Type, First Name, and Last Name.');
-      setIsLoading(false);
+      setError('Employee ID, Employee Type, First Name and Last Name are required.');
       return;
     }
-
     if (formData.create_user_account && !formData.email) {
-      setError('Email address is required when creating a user account. Please provide an email address or uncheck "Create User Account".');
-      setIsLoading(false);
+      setError('Email is required when creating a user account.');
       return;
     }
-
-    try {
-      const result = await createEmployee(formData);
-      const response = result.payload;
-      
-      console.log('🔍 Frontend - Result:', result);
-      console.log('🔍 Frontend - Response:', response);
-      console.log('🔍 Frontend - UserAccount:', response?.userAccount);
-      
-      setSuccess(true);
-      
-      // If user account was created, show credentials modal
-      if (response && response.userAccount && response.userAccount.created) {
-        setUserCredentials(response.userAccount);
-        setEmployeeName(`${formData.first_name} ${formData.last_name}`);
-        setShowCredentialsModal(true);
-      } else {
-        // No user account created, redirect immediately
-        alert('Employee created successfully!');
-        setTimeout(() => {
-          router.push('/admin/dashboard/employees');
-        }, 1500);
-      }
-      
-    } catch (err) {
-      console.error('Error creating employee:', err);
-      setError(err.message || 'Failed to create employee. Please try again.');
-      setIsLoading(false);
-    }
+    setSaving(true); setError(''); setNotice('');
+    createEmployee(formData);
+    setNotice('Employee created successfully!');
+    setTimeout(() => router.push('/admin/dashboard/employees'), 1500);
+    setSaving(false);
   };
 
-  const handleCloseCredentialsModal = () => {
-    setShowCredentialsModal(false);
-    // Redirect after closing credentials modal
-    setTimeout(() => {
-      router.push('/admin/dashboard/employees');
-    }, 500);
-  };
-
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading || employeesLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Redirect if not authenticated
-  if (status === 'unauthenticated') {
-    return null;
-  }
-
-  // Check permissions
   if (!hasPermission('employee.create')) {
     return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Access Denied</h4>
-        <p>You don&apos;t have permission to create employees.</p>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to create employees.</div>
+        <Link href="/admin/dashboard/employees" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Employees</Link>
       </div>
     );
   }
 
-  return (
-    <div className="container-fluid">
-      {/* Credentials Modal */}
-      <CredentialsModal
-        isOpen={showCredentialsModal}
-        onClose={handleCloseCredentialsModal}
-        credentials={userCredentials}
-        employeeName={employeeName}
-      />
+  const field = (label, child, hint) => (
+    <div style={{ marginBottom: '1rem' }}>
+      <label className={s.formLabel}>{label}</label>
+      {child}
+      {hint && <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>{hint}</p>}
+    </div>
+  );
 
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+  return (
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-user-plus text-primary-custom me-2"></i>
-            Add New Employee
-          </h2>
-          <p className="text-muted mb-0">Create a new employee record</p>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#e0f2fe', color: '#0891b2' }}><i className="fas fa-user-plus" /></span>
+            Add Employee
+          </h1>
+          <p className={s.pageSub}>Create a new employee record</p>
         </div>
-        <Link href="/admin/dashboard/employees" className="btn btn-outline-secondary">
-          <i className="fas fa-arrow-left me-2"></i>
-          Back to Employees
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/employees" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Employees
+          </Link>
+        </div>
       </div>
 
-      {/* Success Alert */}
-      {success && (
-        <div className="alert alert-success alert-dismissible fade show" role="alert">
-          <i className="fas fa-check-circle me-2"></i>
-          Employee created successfully!
-          <button type="button" className="btn-close" onClick={() => setSuccess(false)}></button>
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}</div>}
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError('')}></button>
-        </div>
-      )}
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
-      {/* Form */}
-      <div className="row">
-        <div className="col-lg-8">
-          <form onSubmit={handleSubmit}>
-            {/* Basic Information Card */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-primary text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-user me-2"></i>
-                  Basic Information
-                </h5>
+          {/* Left: form */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+            {/* Employee Info */}
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                    <i className="fas fa-user" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  Employee Information
+                </span>
               </div>
-              <div className="card-body">
-                <div className="row">
-                  {/* Employee ID */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="employee_id" className="form-label">
-                      Employee ID <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="employee_id"
-                      name="employee_id"
-                      value={formData.employee_id}
-                      onChange={handleInputChange}
-                      required
-                      placeholder="e.g., EMP001"
-                    />
-                  </div>
-
-                  {/* Schema */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="schema_id" className="form-label">
-                      Employee Type <span className="text-danger">*</span>
-                    </label>
-                    <select
-                      className="form-select"
-                      id="schema_id"
-                      name="schema_id"
-                      value={formData.schema_id}
-                      onChange={handleInputChange}
-                      required
-                    >
-                      <option value="">Select Type</option>
-                      {schemas.map((schema) => (
-                        <option key={schema.id} value={schema.id}>
-                          {schema.display_name || schema.schema_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* First Name */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="first_name" className="form-label">
-                      First Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="first_name"
-                      name="first_name"
-                      value={formData.first_name}
-                      onChange={handleInputChange}
-                      required
-                      placeholder="John"
-                    />
-                  </div>
-
-                  {/* Last Name */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="last_name" className="form-label">
-                      Last Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="last_name"
-                      name="last_name"
-                      value={formData.last_name}
-                      onChange={handleInputChange}
-                      required
-                      placeholder="Doe"
-                    />
-                  </div>
-
-                  {/* Email */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="email" className="form-label">
-                      Email {formData.create_user_account && <span className="text-danger">*</span>}
-                    </label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      id="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      required={formData.create_user_account}
-                      placeholder="john.doe@company.com"
-                    />
-                    {formData.create_user_account && (
-                      <small className="form-text text-info">
-                        <i className="fas fa-info-circle me-1"></i>
-                        Email is required when creating a user account
-                      </small>
+              <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div>{field('Employee ID *', <input type="text" className={s.formInput} name="employee_id" value={formData.employee_id} onChange={handleChange} required placeholder="e.g., EMP001" disabled={saving} />, 'Must be unique')}</div>
+                  <div>
+                    {field('Employee Type *',
+                      <select className={s.formSelect} name="schema_id" value={formData.schema_id} onChange={handleChange} required disabled={saving}>
+                        <option value="">Select Type</option>
+                        {schemas.map(sc => <option key={sc.id} value={sc.id}>{sc.display_name || sc.schema_name}</option>)}
+                      </select>
                     )}
                   </div>
-
-                  {/* Phone */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="phone" className="form-label">Phone</label>
-                    <input
-                      type="tel"
-                      className="form-control"
-                      id="phone"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      placeholder="+1 (234) 567-8900"
-                    />
+                  <div>{field('First Name *', <input type="text" className={s.formInput} name="first_name" value={formData.first_name} onChange={handleChange} required placeholder="John" disabled={saving} />)}</div>
+                  <div>{field('Last Name *',  <input type="text" className={s.formInput} name="last_name"  value={formData.last_name}  onChange={handleChange} required placeholder="Doe"  disabled={saving} />)}</div>
+                  <div>
+                    {field('Email',
+                      <input type="email" className={s.formInput} name="email" value={formData.email} onChange={handleChange}
+                        required={formData.create_user_account}
+                        placeholder="john.doe@company.com" disabled={saving} />,
+                      formData.create_user_account ? 'Required for user account' : undefined
+                    )}
                   </div>
-
-                  {/* Department */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="department_id" className="form-label">Department</label>
-                    <select
-                      className="form-select"
-                      id="department_id"
-                      name="department_id"
-                      value={formData.department_id}
-                      onChange={handleInputChange}
-                    >
-                      <option value="">Select Department</option>
-                      {departments.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div>{field('Phone', <input type="tel" className={s.formInput} name="phone" value={formData.phone} onChange={handleChange} placeholder="+234 XXX XXX XXXX" disabled={saving} />)}</div>
+                  <div>
+                    {field('Department',
+                      <select className={s.formSelect} name="department_id" value={formData.department_id} onChange={handleChange} disabled={saving}>
+                        <option value="">Select Department</option>
+                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    )}
                   </div>
-
-                  {/* Position */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="position" className="form-label">Position</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="position"
-                      name="position"
-                      value={formData.position}
-                      onChange={handleInputChange}
-                      placeholder="e.g., Manager, Assistant"
-                    />
-                  </div>
-
-                  {/* Employment Date */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="employment_date" className="form-label">Employment Date</label>
-                    <input
-                      type="date"
-                      className="form-control"
-                      id="employment_date"
-                      name="employment_date"
-                      value={formData.employment_date}
-                      onChange={handleInputChange}
-                    />
-                  </div>
+                  <div>{field('Position', <input type="text" className={s.formInput} name="position" value={formData.position} onChange={handleChange} placeholder="e.g., Manager" disabled={saving} />)}</div>
+                  <div>{field('Employment Date', <input type="date" className={s.formInput} name="employment_date" value={formData.employment_date} onChange={handleChange} disabled={saving} />)}</div>
                 </div>
               </div>
             </div>
 
-            {/* System Access Card */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-success text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-user-lock me-2"></i>
+            {/* System Access */}
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#d1fae5', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                    <i className="fas fa-user-lock" style={{ fontSize: '0.75rem' }} />
+                  </span>
                   System Access (Optional)
-                </h5>
+                </span>
               </div>
-              <div className="card-body">
-                <div className="alert alert-info">
-                  <i className="fas fa-info-circle me-2"></i>
-                  Enable this option to create a user account for this employee, allowing them to log into the system.
-                  The role can be assigned later via the User Roles page.
+              <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+                <div className={`${s.alert} ${s.alertInfo}`} style={{ marginBottom: '1rem' }}>
+                  <i className="fas fa-info-circle" />
+                  <span style={{ fontSize: '0.82rem' }}>Create a login account so this employee can access the system. Role can be assigned later.</span>
                 </div>
-
-                <div className="form-check form-switch mb-3">
-                  <input
-                    className="form-check-input"
-                    type="checkbox"
-                    id="create_user_account"
-                    name="create_user_account"
-                    checked={formData.create_user_account}
-                    onChange={handleInputChange}
-                  />
-                  <label className="form-check-label" htmlFor="create_user_account">
-                    <strong>Create User Account</strong>
-                    <br />
-                    <small className="text-muted">
-                      Generate login credentials for system access
-                    </small>
-                  </label>
-                </div>
-
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', marginBottom: '1rem', cursor: 'pointer' }}>
+                  <input type="checkbox" name="create_user_account" checked={formData.create_user_account} onChange={handleChange} style={{ marginTop: 3, width: 15, height: 15, accentColor: '#059669' }} disabled={saving} />
+                  <span style={{ fontSize: '0.875rem', color: '#374151' }}>
+                    <strong>Create User Account</strong><br />
+                    <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>Generate login credentials for system access</span>
+                  </span>
+                </label>
                 {formData.create_user_account && (
-                  <div className="ps-4 border-start border-success border-3">
-                    <div className="alert alert-warning mb-3">
-                      <i className="fas fa-key me-2"></i>
-                      <strong>Auto-Generated:</strong> Username and password will be automatically created.
-                      You&apos;ll see them after submission.
+                  <>
+                    <div className={`${s.alert} ${s.alertSuccess}`} style={{ marginBottom: '0.75rem' }}>
+                      <i className="fas fa-key" />
+                      <span style={{ fontSize: '0.82rem' }}>Username &amp; password will be auto-generated and shown after creation.</span>
                     </div>
-
-                    <div className="form-check mb-2">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        id="send_welcome_email"
-                        name="send_welcome_email"
-                        checked={formData.send_welcome_email}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label" htmlFor="send_welcome_email">
-                        Send welcome email with credentials
-                        <br />
-                        <small className="text-muted">
-                          (Email functionality may not be configured)
-                        </small>
-                      </label>
-                    </div>
-
-                    <div className="alert alert-secondary mb-0">
-                      <small>
-                        <i className="fas fa-lightbulb me-2"></i>
-                        <strong>Note:</strong> After creation, you can assign a role to this user via 
-                        <strong> User Management → User Roles</strong>
-                      </small>
-                    </div>
-                  </div>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', cursor: 'pointer' }}>
+                      <input type="checkbox" name="send_welcome_email" checked={formData.send_welcome_email} onChange={handleChange} style={{ marginTop: 3, width: 15, height: 15, accentColor: '#059669' }} disabled={saving} />
+                      <span style={{ fontSize: '0.875rem', color: '#374151' }}>
+                        Send welcome email with credentials<br />
+                        <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>(Requires email configuration)</span>
+                      </span>
+                    </label>
+                  </>
                 )}
               </div>
             </div>
 
-            {/* Submit Buttons */}
-            <div className="d-flex gap-2 mb-4">
-              <button
-                type="submit"
-                className="btn btn-primary-custom"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin me-2"></i>
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-save me-2"></i>
-                    Create Employee
-                  </>
-                )}
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
+                {saving ? <><span className="spinner-border spinner-border-sm" />Creating…</> : <><i className="fas fa-save" />Create Employee</>}
               </button>
-              
-              <Link
-                href="/admin/dashboard/employees"
-                className="btn btn-outline-secondary"
-              >
-                Cancel
+              <Link href="/admin/dashboard/employees" className={`${s.btn} ${s.btnOutline}`}>
+                <i className="fas fa-times" />Cancel
               </Link>
             </div>
-          </form>
-        </div>
+          </div>
 
-        {/* Help & Info */}
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Quick Guide
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="alert alert-primary mb-3">
-                <h6><i className="fas fa-clipboard-list me-2"></i>Required Fields:</h6>
-                <ul className="mb-0 ps-3">
-                  <li>Employee ID (unique)</li>
-                  <li>Employee Type (schema)</li>
-                  <li>First & Last Name</li>
-                  <li>Email (if creating user account)</li>
+          {/* Sidebar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                    <i className="fas fa-lightbulb" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  Quick Guide
+                </span>
+              </div>
+              <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+                <div className={`${s.alert} ${s.alertInfo}`} style={{ marginBottom: '0.75rem' }}>
+                  <i className="fas fa-clipboard-list" />
+                  <span style={{ fontSize: '0.82rem' }}><strong>Required:</strong> Employee ID, Employee Type, First &amp; Last Name</span>
+                </div>
+                <ul style={{ fontSize: '0.82rem', color: '#374151', paddingLeft: '1.1rem', lineHeight: 1.9, margin: '0 0 0.75rem' }}>
+                  <li><strong>Employee ID</strong> must be unique</li>
+                  <li><strong>Email</strong> required if creating user account</li>
+                  <li>Department and Position can be set later</li>
                 </ul>
-              </div>
-
-              <div className="alert alert-success mb-3">
-                <h6><i className="fas fa-user-lock me-2"></i>System Access:</h6>
-                <p className="mb-1">
-                  Check &quot;Create User Account&quot; to allow this employee to log into the system.
-                </p>
-                <p className="mb-0">
-                  <small>
-                    <strong>Auto-generated:</strong> Username & password
-                    <br />
-                    <strong>Assign role later:</strong> Via User Roles page
-                  </small>
-                </p>
-              </div>
-
-              <div className="alert alert-warning mb-0">
-                <h6><i className="fas fa-shield-alt me-2"></i>Security:</h6>
-                <p className="mb-0">
-                  Generated passwords are secure and random. Employees should change their password on first login.
-                </p>
+                <div className={`${s.alert} ${s.alertSuccess}`} style={{ marginBottom: 0 }}>
+                  <i className="fas fa-shield-alt" />
+                  <span style={{ fontSize: '0.78rem' }}>After creating, assign a role via <strong>User Management → User Roles</strong>.</span>
+                </div>
               </div>
             </div>
           </div>
+
         </div>
-      </div>
+      </form>
     </div>
   );
 }

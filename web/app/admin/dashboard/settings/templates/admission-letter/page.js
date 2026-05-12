@@ -4,338 +4,239 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { API_ENDPOINTS, apiService } from '@/services/api';
 import { usePermissions } from '@/hooks/usePermissions';
+import s from '@/styles/admin-portal.module.css';
 
-const defaultPlaceholders = [
-  '{{reference}}',
-  '{{issued_date}}',
-  '{{student_name}}',
-  '{{first_name}}',
-  '{{last_name}}',
-  '{{application_number}}',
-  '{{student_email}}',
-  '{{school_name}}',
-  '{{school_address}}',
-  '{{school_phone}}',
-  '{{school_email}}'
+const PLACEHOLDERS = [
+  '{{reference}}', '{{issued_date}}', '{{student_name}}', '{{first_name}}',
+  '{{last_name}}', '{{application_number}}', '{{student_email}}',
+  '{{school_name}}', '{{school_address}}', '{{school_phone}}', '{{school_email}}',
 ];
+
+const SAMPLE_VARS = {
+  reference: 'ADM-APP-001122', issued_date: new Date().toLocaleDateString(),
+  student_name: 'Jane Doe', first_name: 'Jane', last_name: 'Doe',
+  application_number: 'APP20260001', student_email: 'jane@example.com',
+  school_name: 'Deepflux Academy', school_address: 'No 1 School Avenue',
+  school_phone: '+2348000000000', school_email: 'admissions@school.com',
+};
 
 export default function AdmissionLetterTemplatePage() {
   const { hasPermission } = usePermissions();
-  const [activeTemplate, setActiveTemplate] = useState(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState(null);
-  const [templates, setTemplates] = useState([]);
-  const [form, setForm] = useState({
-    template_name: 'Admission Letter Template',
-    subject: 'Provisional Admission Letter',
-    text_body: ''
-  });
-  const [preview, setPreview] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [templates, setTemplates]       = useState([]);
+  const [activeTemplate, setActive]     = useState(null);
+  const [selectedId, setSelectedId]     = useState(null);
+  const [form, setForm]                 = useState({ template_name: 'Admission Letter Template', subject: 'Provisional Admission Letter', text_body: '' });
+  const [preview, setPreview]           = useState('');
+  const [busy, setBusy]                 = useState(false);
+  const [error, setError]               = useState('');
+  const [notice, setNotice]             = useState('');
 
-  const canReadTemplates = hasPermission('settings.template.read');
-  const canCreateTemplates = hasPermission('settings.template.create');
-  const canUpdateTemplates = hasPermission('settings.template.update');
-  const canActivateTemplates = hasPermission('settings.template.activate');
-  const canPreviewTemplates = hasPermission('settings.template.preview');
+  const canRead     = hasPermission('settings.template.read');
+  const canCreate   = hasPermission('settings.template.create');
+  const canUpdate   = hasPermission('settings.template.update');
+  const canActivate = hasPermission('settings.template.activate');
+  const canPreview  = hasPermission('settings.template.preview');
 
-  const loadTemplates = async () => {
+  const load = async () => {
     try {
       const [activeRes, listRes] = await Promise.all([
         apiService.get(API_ENDPOINTS.SETTINGS.TEMPLATES.ACTIVE('admission_letter')),
-        apiService.get(`${API_ENDPOINTS.SETTINGS.TEMPLATES.LIST}?template_key=admission_letter`)
+        apiService.get(`${API_ENDPOINTS.SETTINGS.TEMPLATES.LIST}?template_key=admission_letter`),
       ]);
-
       const active = activeRes.data || null;
-      const all = listRes.data || [];
-      setActiveTemplate(active);
-      setTemplates(all);
-      setSelectedTemplateId(active?.id || all?.[0]?.id || null);
-
-      if (active) {
-        setForm({
-          template_name: active.template_name || 'Admission Letter Template',
-          subject: active.subject || 'Provisional Admission Letter',
-          text_body: active.text_body || ''
-        });
-      }
-    } catch (loadError) {
-      setError(loadError.message || 'Failed to load templates');
-    }
+      const all    = listRes.data || [];
+      setActive(active); setTemplates(all);
+      setSelectedId(active?.id || all?.[0]?.id || null);
+      if (active) setForm({ template_name: active.template_name || '', subject: active.subject || '', text_body: active.text_body || '' });
+    } catch (e) { setError(e.message || 'Failed to load templates'); }
   };
 
-  useEffect(() => {
-    if (canReadTemplates) {
-      loadTemplates();
-    }
-  }, [canReadTemplates]);
+  useEffect(() => { if (canRead) load(); }, [canRead]);
 
-  if (!canReadTemplates) {
+  const setField = (key, val) => setForm(p => ({ ...p, [key]: val }));
+
+  const handleSaveNew = async () => {
+    if (!canCreate) { setError('No permission to create templates'); return; }
+    try {
+      setBusy(true); setError(''); setNotice('');
+      const res = await apiService.post(API_ENDPOINTS.SETTINGS.TEMPLATES.CREATE, { template_key: 'admission_letter', ...form, placeholders_json: PLACEHOLDERS, is_active: true });
+      setNotice(`Saved and activated version ${res.data?.version || ''}`.trim());
+      await load();
+    } catch (e) { setError(e.message || 'Failed to save template'); }
+    finally { setBusy(false); }
+  };
+
+  const handleUpdate = async () => {
+    if (!canUpdate || !selectedId) { setError('Select a version to update'); return; }
+    try {
+      setBusy(true); setError(''); setNotice('');
+      await apiService.put(API_ENDPOINTS.SETTINGS.TEMPLATES.UPDATE(selectedId), { ...form, placeholders_json: PLACEHOLDERS });
+      setNotice('Template updated.'); await load();
+    } catch (e) { setError(e.message || 'Failed to update template'); }
+    finally { setBusy(false); }
+  };
+
+  const handleActivate = async (id) => {
+    if (!canActivate) { setError('No permission to activate'); return; }
+    try {
+      setBusy(true); setError(''); setNotice('');
+      await apiService.post(API_ENDPOINTS.SETTINGS.TEMPLATES.ACTIVATE(id));
+      setNotice('Template activated.'); await load();
+    } catch (e) { setError(e.message || 'Failed to activate'); }
+    finally { setBusy(false); }
+  };
+
+  const handlePreview = () => {
+    let rendered = form.text_body || '';
+    Object.entries(SAMPLE_VARS).forEach(([k, v]) => { rendered = rendered.replace(new RegExp(`{{\\s*${k}\\s*}}`, 'g'), String(v ?? '')); });
+    setPreview(rendered);
+  };
+
+  const loadVersion = (t) => {
+    setSelectedId(t.id);
+    setForm({ template_name: t.template_name || '', subject: t.subject || '', text_body: t.text_body || '' });
+    setNotice(`Loaded version ${t.version}`); setError('');
+  };
+
+  if (!canRead) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-warning mt-4">You do not have permission to view templates.</div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to view templates.</div>
       </div>
     );
   }
 
-  const saveTemplate = async () => {
-    if (!canCreateTemplates) {
-      setError('You do not have permission to create templates');
-      return;
-    }
-
-    try {
-      setBusy(true);
-      setError('');
-      setNotice('');
-
-      const created = await apiService.post(API_ENDPOINTS.SETTINGS.TEMPLATES.CREATE, {
-        template_key: 'admission_letter',
-        template_name: form.template_name,
-        subject: form.subject,
-        text_body: form.text_body,
-        placeholders_json: defaultPlaceholders,
-        is_active: true
-      });
-
-      setNotice(`Saved and activated template version ${created.data?.version || ''}`.trim());
-      await loadTemplates();
-    } catch (saveError) {
-      setError(saveError.message || 'Failed to save template');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const updateCurrentTemplate = async () => {
-    if (!canUpdateTemplates) {
-      setError('You do not have permission to update templates');
-      return;
-    }
-
-    try {
-      if (!selectedTemplateId) {
-        setError('Select a template version to update');
-        return;
-      }
-
-      setBusy(true);
-      setError('');
-      setNotice('');
-
-      await apiService.put(API_ENDPOINTS.SETTINGS.TEMPLATES.UPDATE(selectedTemplateId), {
-        template_name: form.template_name,
-        subject: form.subject,
-        text_body: form.text_body,
-        placeholders_json: defaultPlaceholders
-      });
-
-      setNotice('Template updated');
-      await loadTemplates();
-    } catch (updateError) {
-      setError(updateError.message || 'Failed to update template');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const activateTemplate = async (id) => {
-    if (!canActivateTemplates) {
-      setError('You do not have permission to activate templates');
-      return;
-    }
-
-    try {
-      setBusy(true);
-      setError('');
-      setNotice('');
-      await apiService.post(API_ENDPOINTS.SETTINGS.TEMPLATES.ACTIVATE(id));
-      setNotice('Template activated');
-      await loadTemplates();
-    } catch (activateError) {
-      setError(activateError.message || 'Failed to activate template');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const previewTemplate = async () => {
-    if (!canPreviewTemplates) {
-      setError('You do not have permission to preview templates');
-      return;
-    }
-
-    try {
-      setBusy(true);
-      setError('');
-      setNotice('');
-      const variables = {
-        reference: 'ADM-APP-001122',
-        issued_date: new Date().toLocaleDateString(),
-        student_name: 'Jane Doe',
-        first_name: 'Jane',
-        last_name: 'Doe',
-        application_number: 'APP20260001',
-        student_email: 'jane@example.com',
-        school_name: 'Deepflux Academy',
-        school_address: 'No 1 School Avenue',
-        school_phone: '+2348000000000',
-        school_email: 'admissions@school.com'
-      };
-
-      let rendered = form.text_body || '';
-      Object.entries(variables).forEach(([key, value]) => {
-        rendered = rendered.replace(new RegExp(`{{\\s*${key}\\s*}}`, 'g'), String(value ?? ''));
-      });
-
-      setPreview(rendered);
-    } catch (previewError) {
-      setError(previewError.message || 'Failed to preview template');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const loadTemplateToEditor = (template) => {
-    setSelectedTemplateId(template.id);
-    setForm({
-      template_name: template.template_name || '',
-      subject: template.subject || '',
-      text_body: template.text_body || ''
-    });
-    setNotice(`Loaded version ${template.version} into editor`);
-    setError('');
-  };
-
   return (
-    <div className="container-fluid">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-file-signature text-primary me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#d1fae5', color: '#059669' }}><i className="fas fa-file-signature" /></span>
             Admission Letter Template
-          </h2>
-          <p className="text-muted mb-0">Customize and save DB-driven admission letter template</p>
+          </h1>
+          <p className={s.pageSub}>Customise the DB-driven admission letter sent to successful candidates</p>
         </div>
-        <Link href="/admin/dashboard/settings/school" className="btn btn-outline-secondary">
-          Back to Settings
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/settings/school" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Settings
+          </Link>
+        </div>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
 
-      <div className="row g-4">
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <h5 className="mb-3">Template Editor</h5>
-              <div className="mb-3">
-                <label className="form-label">Template Name</label>
-                <input
-                  className="form-control"
-                  value={form.template_name}
-                  onChange={(e) => setForm((prev) => ({ ...prev, template_name: e.target.value }))}
-                />
-              </div>
-              <div className="mb-3">
-                <label className="form-label">Subject</label>
-                <input
-                  className="form-control"
-                  value={form.subject}
-                  onChange={(e) => setForm((prev) => ({ ...prev, subject: e.target.value }))}
-                />
-              </div>
-              <div className="mb-3">
-                <label className="form-label">Text Body</label>
-                <textarea
-                  className="form-control"
-                  rows={18}
-                  value={form.text_body}
-                  onChange={(e) => setForm((prev) => ({ ...prev, text_body: e.target.value }))}
-                />
-              </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem', alignItems: 'start' }}>
 
-              <div className="d-flex gap-2">
-                <button className="btn btn-outline-secondary" disabled={busy || !selectedTemplateId || !canUpdateTemplates} onClick={updateCurrentTemplate}>
-                  Save Changes to Selected Version
-                </button>
-                <button className="btn btn-primary" disabled={busy || !canCreateTemplates} onClick={saveTemplate}>
-                  Save as New Version + Activate
-                </button>
-                <button className="btn btn-outline-primary" disabled={busy || !canPreviewTemplates} onClick={previewTemplate}>
-                  Preview
-                </button>
-              </div>
+        {/* Editor */}
+        <div className={s.card} style={{ marginBottom: 0 }}>
+          <div className={s.cardHeader}>
+            <span className={s.cardTitle}><i className="fas fa-edit" style={{ color: '#059669' }} />Template Editor</span>
+            {activeTemplate && <span className={`${s.badge} ${s.badgeActive}`}>Active: v{activeTemplate.version}</span>}
+          </div>
+          <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label className={s.formLabel}>Template Name</label>
+              <input className={s.formInput} value={form.template_name} onChange={e => setField('template_name', e.target.value)} />
+            </div>
+            <div>
+              <label className={s.formLabel}>Subject</label>
+              <input className={s.formInput} value={form.subject} onChange={e => setField('subject', e.target.value)} />
+            </div>
+            <div>
+              <label className={s.formLabel}>Text Body <span style={{ color: '#9ca3af', fontWeight: 400 }}>(use placeholders from the right panel)</span></label>
+              <textarea
+                className={s.formInput}
+                rows={18}
+                value={form.text_body}
+                onChange={e => setField('text_body', e.target.value)}
+                style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.875rem' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button className={`${s.btn} ${s.btnOutline}`} disabled={busy || !selectedId || !canUpdate} onClick={handleUpdate}>
+                <i className="fas fa-save" />Save Changes to Version
+              </button>
+              <button className={`${s.btn} ${s.btnGreen}`} disabled={busy || !canCreate} onClick={handleSaveNew}>
+                <i className="fas fa-plus" />Save as New Version
+              </button>
+              <button className={`${s.btn} ${s.btnOutline}`} disabled={busy || !canPreview} onClick={handlePreview}>
+                <i className="fas fa-eye" />Preview
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body">
-              <h6>Available Placeholders</h6>
-              <ul className="list-group list-group-flush">
-                {defaultPlaceholders.map((placeholder) => (
-                  <li key={placeholder} className="list-group-item px-0 py-1">
-                    <code>{placeholder}</code>
-                  </li>
-                ))}
-              </ul>
+        {/* Right sidebar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* Placeholders */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-code" style={{ color: '#7c3aed' }} />Placeholders</span>
+            </div>
+            <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {PLACEHOLDERS.map(p => (
+                <div key={p} style={{ padding: '0.3rem 0', borderBottom: '1px solid #f0f4f8' }}>
+                  <code style={{ background: '#f1f5f9', padding: '0.15rem 0.4rem', borderRadius: 4, fontSize: '0.8rem', color: '#7c3aed' }}>{p}</code>
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body">
-              <h6>Template Versions</h6>
-              <div className="list-group">
-                {templates.map((template) => (
-                  <div
-                    key={template.id}
-                    className={`list-group-item ${selectedTemplateId === template.id ? 'border-primary' : ''}`}
-                  >
-                    <div className="d-flex justify-content-between align-items-center gap-2">
-                      <span>v{template.version} - {template.template_name}</span>
-                      {template.is_active && <span className="badge bg-success">Active</span>}
-                    </div>
-                    <div className="d-flex gap-2 mt-2">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-primary"
-                        onClick={() => loadTemplateToEditor(template)}
-                        disabled={busy || !canUpdateTemplates}
-                      >
-                        Edit
-                      </button>
-                      {!template.is_active && (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-success"
-                          onClick={() => activateTemplate(template.id)}
-                          disabled={busy || !canActivateTemplates}
-                        >
-                          Activate
-                        </button>
-                      )}
-                    </div>
+          {/* Versions */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-history" style={{ color: '#2563eb' }} />Versions</span>
+            </div>
+            <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {templates.length === 0 ? (
+                <p style={{ fontSize: '0.82rem', color: '#9ca3af', margin: 0 }}>No templates saved yet.</p>
+              ) : templates.map(t => (
+                <div key={t.id} style={{ padding: '0.6rem 0.75rem', borderRadius: 8, border: `1px solid ${selectedId === t.id ? '#2563eb' : '#e5e7eb'}`, background: selectedId === t.id ? '#eff6ff' : '#fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e3a5f' }}>v{t.version}</span>
+                    {t.is_active && <span className={`${s.badge} ${s.badgeActive}`}>Active</span>}
                   </div>
-                ))}
-                {templates.length === 0 && <div className="text-muted">No templates yet.</div>}
-              </div>
+                  <div style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: '0.4rem' }}>{t.template_name}</div>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button onClick={() => loadVersion(t)} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`} disabled={busy || !canUpdate}>
+                      <i className="fas fa-edit" />Edit
+                    </button>
+                    {!t.is_active && (
+                      <button onClick={() => handleActivate(t.id)} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`} disabled={busy || !canActivate}>
+                        <i className="fas fa-check" />Activate
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <h6>Preview Output</h6>
-              <pre className="small bg-light p-3 rounded" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                {preview || 'No preview generated yet.'}
-              </pre>
+          {/* Preview */}
+          {preview && (
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}><i className="fas fa-eye" style={{ color: '#059669' }} />Preview</span>
+              </div>
+              <div className={s.cardBody}>
+                <pre style={{ fontSize: '0.82rem', background: '#f9fafb', padding: '0.75rem', borderRadius: 8, maxHeight: 280, overflowY: 'auto', whiteSpace: 'pre-wrap', margin: 0, color: '#374151' }}>{preview}</pre>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
+
+      <style jsx>{`
+        @media (max-width: 991px) {
+          div[style*="grid-template-columns: 1fr 300px"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

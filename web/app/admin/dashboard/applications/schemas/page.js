@@ -1,378 +1,250 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
+
+const EMPTY_SCHEMA = { schema_name: '', display_name: '', description: '', application_fee: 0, is_active: true };
 
 export default function ApplicationSchemasPage() {
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const { schemas, loading, error: reduxError, fetchApplicationSchemas, createApplicationSchema, deleteApplicationSchema, updateApplicationSchema } = useApplications();
 
-  // Redux state and actions
-  const {
-    schemas,
-    loading,
-    error: reduxError,
-    fetchApplicationSchemas,
-    createApplicationSchema,
-    deleteApplicationSchema,
-    updateApplicationSchema
-  } = useApplications();
+  const [showModal, setShowModal]   = useState(false);
+  const [form, setForm]             = useState(EMPTY_SCHEMA);
+  const [busy, setBusy]             = useState(false);
+  const [notice, setNotice]         = useState('');
+  const [error, setError]           = useState('');
+  const loadedRef = useRef(false);
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState(null);
-  
-  const [newSchema, setNewSchema] = useState({
-    schema_name: '',
-    display_name: '',
-    description: '',
-    application_fee: 0,
-    is_active: true
-  });
+  const canCreate = hasPermission('application_schema.create');
+  const canUpdate = hasPermission('application_schema.update');
+  const canDelete = hasPermission('application_schema.delete');
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      fetchApplicationSchemas();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchApplicationSchemas();
     }
-  }, [status, session?.user?.id, session?.accessToken, fetchApplicationSchemas]);
+  }, [status, session?.user?.id, fetchApplicationSchemas]);
 
-  const handleCreateSchema = async (e) => {
+  const setField = (key, val) => setForm(p => ({ ...p, [key]: val }));
+
+  const openCreate = () => { setForm(EMPTY_SCHEMA); setError(''); setNotice(''); setShowModal(true); };
+  const closeModal = () => setShowModal(false);
+
+  const handleCreate = async (e) => {
     e.preventDefault();
-    setCreating(true);
-    setError(null);
+    if (!canCreate) { setError('No permission to create schemas'); return; }
     try {
-      console.log('📤 Creating schema:', newSchema);
-      await createApplicationSchema(newSchema);
-      alert('Application schema created successfully!');
-      setShowCreateModal(false);
-      setNewSchema({
-        schema_name: '',
-        display_name: '',
-        description: '',
-        application_fee: 0,
-        is_active: true
-      });
-      await fetchApplicationSchemas(); // Refresh data
-    } catch (error) {
-      console.error('❌ Error creating schema:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to create application schema';
-      alert(errorMessage);
-      setError(errorMessage);
-    } finally {
-      setCreating(false);
-    }
+      setBusy(true); setError(''); setNotice('');
+      createApplicationSchema(form);
+      setNotice('Application schema created successfully.');
+      closeModal();
+      fetchApplicationSchemas();
+    } catch (err) { setError(err.message || 'Failed to create schema'); }
+    finally { setBusy(false); }
   };
 
-  const handleDeleteSchema = async (schemaId) => {
-    if (window.confirm('Are you sure you want to delete this schema?')) {
-      try {
-        await deleteApplicationSchema(schemaId);
-        alert('Application schema deleted successfully!');
-      } catch (error) {
-        console.error('Error deleting schema:', error);
-        alert('Failed to delete application schema');
-      }
-    }
+  const handleDelete = (id) => {
+    if (!window.confirm('Delete this application schema?')) return;
+    deleteApplicationSchema(id);
+    setNotice('Schema deleted.');
   };
 
-  const handleToggleActive = async (schemaId, currentStatus) => {
-    try {
-      await updateApplication(schemaId, { is_active: !currentStatus });
-      alert(`Schema ${!currentStatus ? 'activated' : 'deactivated'} successfully!`);
-      await fetchApplicationSchemas(); // Refresh data
-    } catch (error) {
-      console.error('Error updating schema:', error);
-      alert('Failed to update schema status');
-    }
+  const handleToggle = (schema) => {
+    updateApplicationSchema({ id: schema.id, is_active: !schema.is_active });
+    setNotice(`Schema ${!schema.is_active ? 'activated' : 'deactivated'}.`);
   };
 
-  // Show loading while checking authentication
-  if (status === 'loading') {
+  if (status === 'loading' || permissionsLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
+  }
+
+  if (!hasPermission('application_schema.read')) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to view application schemas.</div>
       </div>
     );
   }
 
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
-  }
+  const active   = schemas.filter(s => s.is_active).length;
+  const inactive = schemas.filter(s => !s.is_active).length;
+  const withFee  = schemas.filter(s => parseFloat(s.application_fee || 0) > 0).length;
 
   return (
-    <div className="application-schemas-page">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-cogs text-primary me-2"></i>
-            Application Schema Management
-          </h2>
-          <p className="text-muted mb-0">Create and manage application schemas for different admission types</p>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#ede9fe', color: '#7c3aed' }}><i className="fas fa-cogs" /></span>
+            Application Schemas
+          </h1>
+          <p className={s.pageSub}>Define and manage application types for different admission programmes</p>
         </div>
-        <div className="d-flex gap-2">
-          <Link href="/admin/dashboard/applications" className="btn btn-outline-primary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Applications
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Applications
           </Link>
-          {hasPermission('application_schema.create') && (
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowCreateModal(true)}
-          >
-              <i className="fas fa-plus me-2"></i>
-              Create Schema
-          </button>
-        )}
-        </div>
-      </div>
-
-      {(error || reduxError) && (
-        <div className="alert alert-danger" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error || reduxError}
-        </div>
-      )}
-
-      {/* Schemas List */}
-      <div className="card">
-        <div className="card-header">
-          <h5 className="mb-0">
-            <i className="fas fa-list me-2"></i>
-            Application Schemas ({schemas.length})
-          </h5>
-        </div>
-        <div className="card-body">
-          {loading ? (
-            <div className="text-center py-4">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
-              </div>
-            </div>
-          ) : schemas.length === 0 ? (
-            <div className="text-center py-4">
-              <i className="fas fa-cogs text-muted fs-1 mb-3"></i>
-              <h5 className="text-muted">No Application Schemas</h5>
-              <p className="text-muted">Create your first application schema to get started.</p>
-              {hasPermission('application_schema.create') && (
-                <button 
-                  className="btn btn-primary"
-                  onClick={() => setShowCreateModal(true)}
-                >
-                  <i className="fas fa-plus me-2"></i>
-                  Create First Schema
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="row">
-              {schemas.map(schema => (
-                <div key={schema.id} className="col-md-6 col-lg-4 mb-4">
-                  <div className="card h-100">
-                    <div className="card-header d-flex justify-content-between align-items-center">
-                      <h6 className="mb-0">
-                        <i className="fas fa-cog text-primary me-2"></i>
-                        {schema.display_name || schema.schema_name}
-                      </h6>
-                        <span className={`badge ${schema.is_active ? 'bg-success' : 'bg-secondary'}`}>
-                          {schema.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                    </div>
-                    <div className="card-body">
-                      <div className="mb-3">
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-tag text-info me-2"></i>
-                          <strong>{schema.schema_name}</strong>
-                        </div>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-money-bill text-success me-2"></i>
-                          <span>Fee: ₦{parseFloat(schema.application_fee || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-calendar text-warning me-2"></i>
-                          <span>Created: {new Date(schema.created_at).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                      
-                      {schema.description && (
-                        <div className="mb-3">
-                          <small className="text-muted">
-                            <strong>Description:</strong> {schema.description}
-                          </small>
-                        </div>
-                      )}
-                    </div>
-                    <div className="card-footer">
-                      <div className="d-flex gap-1 flex-wrap">
-                        <Link 
-                          href={`/admin/dashboard/applications/schemas/${schema.id}/fields`}
-                          className="btn btn-success btn-sm"
-                        >
-                          <i className="fas fa-list-ul me-1"></i> Manage Fields
-                        </Link>
-                        
-                        <Link 
-                          href={`/admin/dashboard/applications/schemas/${schema.id}`}
-                          className="btn btn-outline-primary btn-sm"
-                        >
-                          <i className="fas fa-eye me-1"></i> View
-                        </Link>
-                        
-                        {hasPermission('application_schema.update') && (
-                          <>
-                            <Link 
-                              href={`/admin/dashboard/applications/schemas/${schema.id}/edit`}
-                              className="btn btn-outline-warning btn-sm"
-                            >
-                              <i className="fas fa-edit me-1"></i> Edit
-                            </Link>
-                            
-                            <button
-                              className={`btn btn-outline-${schema.is_active ? 'secondary' : 'success'} btn-sm`}
-                              onClick={() => handleToggleActive(schema.id, schema.is_active)}
-                            >
-                              <i className={`fas fa-${schema.is_active ? 'pause' : 'play'} me-1`}></i>
-                              {schema.is_active ? 'Deactivate' : 'Activate'}
-                            </button>
-                          </>
-                        )}
-                        
-                        {hasPermission('application_schema.delete') && (
-                          <button 
-                            className="btn btn-outline-danger btn-sm"
-                            onClick={() => handleDeleteSchema(schema.id)}
-                          >
-                            <i className="fas fa-trash me-1"></i> Delete
-                            </button>
-                          )}
-                        </div>
-                    </div>
-                  </div>
-                </div>
-                  ))}
-            </div>
+          {canCreate && (
+            <button onClick={openCreate} className={`${s.btn} ${s.btnPrimary}`}>
+              <i className="fas fa-plus" />New Schema
+            </button>
           )}
         </div>
       </div>
 
-      {/* Create Schema Modal */}
-      {showCreateModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog">
-            <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title">Create Application Schema</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowCreateModal(false)}
-                  ></button>
-                </div>
-              <form onSubmit={handleCreateSchema}>
-                <div className="modal-body">
-                  <div className="mb-3">
-                    <label className="form-label">Schema Name *</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={newSchema.schema_name}
-                      onChange={(e) => setNewSchema({...newSchema, schema_name: e.target.value})}
-                      required
-                      placeholder="e.g., undergraduate_application"
-                    />
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label">Display Name *</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={newSchema.display_name}
-                      onChange={(e) => setNewSchema({...newSchema, display_name: e.target.value})}
-                      required
-                      placeholder="e.g., Undergraduate Application"
-                    />
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label">Description</label>
-                    <textarea
-                      className="form-control"
-                      rows="3"
-                      value={newSchema.description}
-                      onChange={(e) => setNewSchema({...newSchema, description: e.target.value})}
-                      placeholder="Describe this application type..."
-                    />
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label className="form-label">Application Fee</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={newSchema.application_fee}
-                      onChange={(e) => setNewSchema({...newSchema, application_fee: parseFloat(e.target.value) || 0})}
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-                  
-                  <div className="form-check">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="is_active"
-                      checked={newSchema.is_active}
-                      onChange={(e) => setNewSchema({...newSchema, is_active: e.target.checked})}
-                    />
-                    <label className="form-check-label" htmlFor="is_active">
-                      Active (available for applications)
-                    </label>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowCreateModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary"
-                    disabled={creating}
-                  >
-                    {creating ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                        Creating...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-plus me-2"></i>
-                        Create Schema
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
+      {(error || reduxError) && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error || reduxError}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
+
+      {/* Stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total',    value: schemas.length, icon: 'fas fa-cogs',        color: '#7c3aed' },
+          { label: 'Active',   value: active,         icon: 'fas fa-check-circle', color: '#059669' },
+          { label: 'Inactive', value: inactive,       icon: 'fas fa-times-circle', color: '#dc2626' },
+          { label: 'With Fee', value: withFee,        icon: 'fas fa-money-bill',   color: '#d97706' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
             </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}>
+              <i className={st.icon} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Schema cards */}
+      {loading ? (
+        <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+      ) : schemas.length === 0 ? (
+        <div className={s.card}>
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#ede9fe', color: '#7c3aed' }}><i className="fas fa-cogs" /></div>
+            <div className={s.emptyTitle}>No Schemas Yet</div>
+            <p className={s.emptySub}>Create your first application schema to define an admission type.</p>
+            {canCreate && (
+              <button onClick={openCreate} className={`${s.btn} ${s.btnPrimary}`}><i className="fas fa-plus" />New Schema</button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.25rem' }}>
+          {schemas.map(schema => (
+            <div key={schema.id} className={s.card} style={{ marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
+              {/* Card header */}
+              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: 32, height: 32, borderRadius: 8, background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', flexShrink: 0 }}>
+                    <i className="fas fa-cog" style={{ fontSize: '0.78rem' }} />
+                  </span>
+                  <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e3a5f' }}>{schema.display_name || schema.schema_name}</span>
+                </div>
+                <span className={`${s.badge} ${schema.is_active ? s.badgeActive : s.badgeInactive}`}>
+                  {schema.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+
+              {/* Card body */}
+              <div style={{ padding: '0.875rem 1.25rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: '#6b7280' }}>
+                  <i className="fas fa-tag" style={{ color: '#7c3aed', width: 14 }} />
+                  <code style={{ background: '#f1f5f9', padding: '0.1rem 0.35rem', borderRadius: 4, fontSize: '0.78rem', color: '#374151' }}>{schema.schema_name}</code>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: '#6b7280' }}>
+                  <i className="fas fa-money-bill" style={{ color: '#059669', width: 14 }} />
+                  <span>₦{parseFloat(schema.application_fee || 0).toLocaleString()} application fee</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: '#6b7280' }}>
+                  <i className="fas fa-calendar" style={{ color: '#0891b2', width: 14 }} />
+                  <span>Created {new Date(schema.created_at).toLocaleDateString()}</span>
+                </div>
+                {schema.description && (
+                  <p style={{ fontSize: '0.82rem', color: '#6b7280', margin: '0.25rem 0 0', lineHeight: 1.5, borderTop: '1px solid #f0f4f8', paddingTop: '0.5rem' }}>
+                    {schema.description}
+                  </p>
+                )}
+              </div>
+
+              {/* Card footer */}
+              <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #f0f4f8', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <Link href={`/admin/dashboard/applications/schemas/${schema.id}/fields`} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`} style={{ flex: 1, justifyContent: 'center' }}>
+                  <i className="fas fa-list-ul" />Fields
+                </Link>
+                <Link href={`/admin/dashboard/applications/schemas/${schema.id}`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}>
+                  <i className="fas fa-eye" />View
+                </Link>
+                {canUpdate && (
+                  <>
+                    <Link href={`/admin/dashboard/applications/schemas/${schema.id}/edit`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}>
+                      <i className="fas fa-edit" />Edit
+                    </Link>
+                    <button onClick={() => handleToggle(schema)} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`} title={schema.is_active ? 'Deactivate' : 'Activate'}>
+                      <i className={`fas fa-${schema.is_active ? 'pause' : 'play'}`} />
+                    </button>
+                  </>
+                )}
+                {canDelete && (
+                  <button onClick={() => handleDelete(schema.id)} className={`${s.btnIcon} ${s.btnIconDanger}`} title="Delete">
+                    <i className="fas fa-trash" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create modal */}
+      {showModal && (
+        <div className={s.modalOverlay} onClick={closeModal}>
+          <div className={s.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className={s.modalHeader}>
+              <span className={s.modalTitle}><i className="fas fa-plus" style={{ color: '#7c3aed' }} />New Application Schema</span>
+              <button className={s.modalClose} onClick={closeModal}><i className="fas fa-times" /></button>
+            </div>
+            <form onSubmit={handleCreate}>
+              <div className={s.modalBody} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+                  <div>
+                    <label className={s.formLabel}>Schema Name *</label>
+                    <input className={s.formInput} type="text" value={form.schema_name} onChange={e => setField('schema_name', e.target.value)} placeholder="undergraduate_application" required />
+                  </div>
+                  <div>
+                    <label className={s.formLabel}>Display Name *</label>
+                    <input className={s.formInput} type="text" value={form.display_name} onChange={e => setField('display_name', e.target.value)} placeholder="Undergraduate Application" required />
+                  </div>
+                </div>
+                <div>
+                  <label className={s.formLabel}>Description</label>
+                  <textarea className={s.formInput} rows={3} value={form.description} onChange={e => setField('description', e.target.value)} placeholder="Describe this application type..." style={{ resize: 'vertical' }} />
+                </div>
+                <div>
+                  <label className={s.formLabel}>Application Fee (₦)</label>
+                  <input className={s.formInput} type="number" value={form.application_fee} onChange={e => setField('application_fee', parseFloat(e.target.value) || 0)} min={0} step={0.01} />
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.is_active} onChange={e => setField('is_active', e.target.checked)} style={{ width: 15, height: 15 }} />
+                  Active (available for applications)
+                </label>
+              </div>
+              <div className={s.modalFooter}>
+                <button type="button" className={`${s.btn} ${s.btnOutline}`} onClick={closeModal}>Cancel</button>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={busy}>
+                  {busy ? <><span className="spinner-border spinner-border-sm" />Creating…</> : <><i className="fas fa-plus" />Create Schema</>}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

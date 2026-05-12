@@ -1,309 +1,180 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
-import apiService from '@/services/api';
-import { API_URL } from '@/services/api';
+import { apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
+
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const initials = (name) => (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
 export default function UnderReviewPage() {
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  const {
-    applications,
-    loading,
-    error,
-    fetchApplications
-  } = useApplications();
-  
-  const [selectedApplications, setSelectedApplications] = useState([]);
-  const [bulkActionLoading, setBulkActionLoading] = useState(false);
-  const [selectAll, setSelectAll] = useState(false);
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { applications: all, loading, error, fetchApplications } = useApplications();
 
-  // Filter applications that are submitted (ready for review)
-  const underReviewApplications = applications.filter(app => 
-    app.status === 'submitted'
-  );
+  const [selected, setSelected]   = useState([]);
+  const [busy, setBusy]           = useState(false);
+  const [search, setSearch]       = useState('');
+  const [notice, setNotice]       = useState('');
+  const loadedRef = useRef(false);
 
+  const applications = all.filter(a => a.status === 'submitted');
+
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      fetchApplications();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchApplications();
     }
-  }, [status, session?.user?.id, session?.accessToken, fetchApplications]);
+  }, [status, session?.user?.id, fetchApplications]);
 
-  const handleSelectApplication = (applicationId) => {
-    setSelectedApplications(prev => {
-      if (prev.includes(applicationId)) {
-        return prev.filter(id => id !== applicationId);
-      } else {
-        return [...prev, applicationId];
-      }
-    });
-  };
+  const filtered = applications.filter(a => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return [a.applicant_name, a.applicant_email, a.application_number].filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
 
-  const handleSelectAll = () => {
-    if (selectAll) {
-      setSelectedApplications([]);
-    } else {
-      setSelectedApplications(underReviewApplications.map(app => app.id));
-    }
-    setSelectAll(!selectAll);
-  };
+  const allSelected = filtered.length > 0 && filtered.every(a => selected.includes(a.id));
+  const toggleAll = () => setSelected(allSelected ? [] : filtered.map(a => a.id));
+  const toggle = (id) => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
 
   const handleBulkApprove = async () => {
-    if (selectedApplications.length === 0) {
-      alert('Please select at least one application to approve.');
-      return;
-    }
-
-    if (!window.confirm(`Are you sure you want to approve ${selectedApplications.length} application(s)?`)) {
-      return;
-    }
-
+    if (!selected.length) return;
+    if (!window.confirm(`Approve ${selected.length} application(s)?`)) return;
     try {
-      setBulkActionLoading(true);
-      
-      // Process each selected application
-      const promises = selectedApplications.map(appId => 
-        apiService.put(`/applications/${appId}/status`, {
-          status: 'approved'
-        })
-      );
-
-      await Promise.all(promises);
-      
-      alert(`${selectedApplications.length} application(s) approved successfully!`);
-      setSelectedApplications([]);
-      setSelectAll(false);
-      fetchApplications(); // Refresh the list
-      
-    } catch (error) {
-      console.error('Error bulk approving applications:', error);
-      alert('Failed to approve applications. Please try again.');
-    } finally {
-      setBulkActionLoading(false);
-    }
+      setBusy(true);
+      await Promise.all(selected.map(id => apiService.put(`/applications/${id}/status`, { status: 'approved' })));
+      setNotice(`${selected.length} application(s) approved.`);
+      setSelected([]); fetchApplications();
+    } catch { setNotice('Failed to approve some applications. Please try again.'); }
+    finally { setBusy(false); }
   };
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      draft: { class: 'bg-secondary', text: 'Draft' },
-      submitted: { class: 'bg-info', text: 'Submitted' },
-      approved: { class: 'bg-success', text: 'Approved' }
-    };
-    
-    const config = statusConfig[status] || { class: 'bg-secondary', text: status };
-    return <span className={`badge ${config.class}`}>{config.text}</span>;
-  };
-
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="under-review-page">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <nav aria-label="breadcrumb">
-            <ol className="breadcrumb">
-              <li className="breadcrumb-item">
-                <Link href="/admin/dashboard">Dashboard</Link>
-              </li>
-              <li className="breadcrumb-item">
-                <Link href="/admin/dashboard/applications">Applications</Link>
-              </li>
-              <li className="breadcrumb-item active" aria-current="page">
-                Under Review
-              </li>
-            </ol>
-          </nav>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-eye text-warning me-2"></i>
-            Applications Under Review
-          </h2>
-          <p className="text-muted mb-0">
-            Review and approve submitted applications ({underReviewApplications.length} applications)
-          </p>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#e0f2fe', color: '#0891b2' }}><i className="fas fa-eye" /></span>
+            Under Review
+          </h1>
+          <p className={s.pageSub}>Submitted applications ready for assessment — {applications.length} total</p>
         </div>
-        
-        <div className="btn-group">
-          <Link 
-            href="/admin/dashboard/applications" 
-            className="btn btn-outline-secondary"
-          >
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Applications
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Applications
           </Link>
+          <button onClick={fetchApplications} className={`${s.btn} ${s.btnOutline}`} disabled={loading}>
+            <i className="fas fa-sync" />Refresh
+          </button>
         </div>
       </div>
 
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
+      {notice && <div className={`${s.alert} ${notice.includes('Failed') ? s.alertDanger : s.alertSuccess}`}><i className={`fas fa-${notice.includes('Failed') ? 'exclamation-triangle' : 'check-circle'}`} />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><i className="fas fa-times" /></button></div>}
 
-      {/* Bulk Actions */}
-      {underReviewApplications.length > 0 && (
-        <div className="card mb-4">
-          <div className="card-body">
-            <div className="d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center gap-3">
-                <div className="form-check">
-                  <input
-                    className="form-check-input"
-                    type="checkbox"
-                    id="selectAll"
-                    checked={selectAll}
-                    onChange={handleSelectAll}
-                  />
-                  <label className="form-check-label" htmlFor="selectAll">
-                    Select All ({selectedApplications.length} selected)
-                  </label>
-                </div>
-              </div>
-              
-              {selectedApplications.length > 0 && (
-                <div className="btn-group">
-                  <button 
-                    className="btn btn-success"
-                    onClick={handleBulkApprove}
-                    disabled={bulkActionLoading}
-                  >
-                    {bulkActionLoading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-check me-2"></i>
-                        Approve Selected ({selectedApplications.length})
-                      </>
-                    )}
-                  </button>
-                </div>
+      {/* Stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Submitted',  value: applications.length, icon: 'fas fa-eye',          color: '#0891b2' },
+          { label: 'Paid',       value: applications.filter(a => a.payment_status === 'paid').length, icon: 'fas fa-check-circle', color: '#059669' },
+          { label: 'Unpaid',     value: applications.filter(a => a.payment_status !== 'paid').length, icon: 'fas fa-times-circle', color: '#d97706' },
+          { label: 'Selected',   value: selected.length, icon: 'fas fa-check-square', color: '#7c3aed' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
+            </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
+          </div>
+        ))}
+      </div>
+
+      <div className={s.card} style={{ marginBottom: 0 }}>
+        {/* Toolbar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', padding: '0.875rem 1.25rem', borderBottom: '1px solid #f0f4f8' }}>
+          <span className={s.cardTitle}><i className="fas fa-list" style={{ color: '#0891b2' }} />Submitted ({filtered.length})</span>
+          <div className={s.searchWrap} style={{ maxWidth: 240 }}>
+            <i className={`fas fa-search ${s.searchIcon}`} />
+            <input className={s.searchInput} placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+        </div>
+
+        {/* Bulk bar */}
+        {selected.length > 0 && (
+          <div className={s.bulkBar}>
+            <span className={s.bulkBarInfo}><i className="fas fa-check-square" />{selected.length} selected</span>
+            <div className={s.bulkBarActions}>
+              <button onClick={() => setSelected([])} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}>Deselect all</button>
+              {hasPermission('application.update') && (
+                <button onClick={handleBulkApprove} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`} disabled={busy}>
+                  {busy ? <><span className="spinner-border spinner-border-sm" />Processing…</> : <><i className="fas fa-check" />Approve {selected.length}</>}
+                </button>
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Applications List */}
-      <div className="card">
-        <div className="card-header">
-          <h5 className="mb-0">
-            <i className="fas fa-list me-2"></i>
-            Under Review Applications ({underReviewApplications.length})
-          </h5>
-        </div>
-        <div className="card-body">
-          {underReviewApplications.length === 0 ? (
-            <div className="text-center py-4">
-              <i className="fas fa-inbox text-muted fs-1 mb-3"></i>
-              <h5 className="text-muted">No Applications Under Review</h5>
-              <p className="text-muted">
-                All submitted applications have been reviewed or there are no submitted applications yet.
-              </p>
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="table table-hover">
-                <thead className="table-light">
+        {loading ? (
+          <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+        ) : filtered.length === 0 ? (
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#d1fae5', color: '#059669' }}><i className="fas fa-inbox" /></div>
+            <div className={s.emptyTitle}>{search ? 'No matches' : 'No Submitted Applications'}</div>
+            <p className={s.emptySub}>{search ? 'No applications match your search.' : 'No applications have been submitted for review.'}</p>
+          </div>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className={s.tableWrap}>
+              <table className={s.table}>
+                <thead>
                   <tr>
-                    <th width="50">
-                      <input
-                        type="checkbox"
-                        className="form-check-input"
-                        checked={selectAll}
-                        onChange={handleSelectAll}
-                      />
+                    <th style={{ width: 40, paddingLeft: '1.25rem' }}>
+                      <input type="checkbox" className={s.checkbox} checked={allSelected} onChange={toggleAll} />
                     </th>
-                    <th>Application ID</th>
+                    <th>App No.</th>
                     <th>Applicant</th>
-                    <th>Email</th>
                     <th>Program</th>
-                    <th>Status</th>
                     <th>Payment</th>
                     <th>Submitted</th>
-                    <th>Actions</th>
+                    <th style={{ paddingRight: '1.25rem' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {underReviewApplications.map(application => (
-                    <tr key={application.id}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          checked={selectedApplications.includes(application.id)}
-                          onChange={() => handleSelectApplication(application.id)}
-                        />
+                  {filtered.map(app => (
+                    <tr key={app.id}>
+                      <td style={{ paddingLeft: '1.25rem' }}>
+                        <input type="checkbox" className={s.checkbox} checked={selected.includes(app.id)} onChange={() => toggle(app.id)} />
                       </td>
+                      <td><span className={s.tdMono}>{app.application_number || `APP-${app.id}`}</span></td>
                       <td>
-                        <code className="text-primary">
-                          {application.application_number || `APP${application.id}`}
-                        </code>
-                      </td>
-                      <td>
-                        <div className="d-flex align-items-center">
-                          <i className="fas fa-user text-info me-2"></i>
-                          <strong>{application.applicant_name || 'Unknown Applicant'}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                          <div>
+                            <div className={s.tdName}>{app.applicant_name || 'Unknown'}</div>
+                            <div className={s.tdEmail}>{app.applicant_email || '—'}</div>
+                          </div>
                         </div>
                       </td>
-                      <td>
-                        <div className="d-flex align-items-center">
-                          <i className="fas fa-envelope text-secondary me-2"></i>
-                          <span>{application.applicant_email || 'No email'}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="badge bg-light text-dark">
-                          {application.schema_display_name || application.schema_name || 'N/A'}
-                        </span>
-                      </td>
-                      <td>{getStatusBadge(application.status)}</td>
-                      <td>
-                        <span className={`badge ${application.payment_status === 'paid' ? 'bg-success' : 'bg-warning'}`}>
-                          {application.payment_status || 'pending'}
-                        </span>
-                      </td>
-                      <td>
-                        <small className="text-muted">
-                          {new Date(application.created_at).toLocaleDateString()}
-                        </small>
-                      </td>
-                      <td>
-                        <div className="btn-group" role="group">
-                          <Link 
-                            href={`/admin/dashboard/applications/${application.id}`}
-                            className="btn btn-outline-primary btn-sm"
-                            title="View Details"
-                          >
-                            <i className="fas fa-eye"></i>
+                      <td><span className={`${s.badge} ${s.badgeInfo}`}>{app.schema_display_name || app.schema_name || 'N/A'}</span></td>
+                      <td><span className={`${s.badge} ${app.payment_status === 'paid' ? s.badgePaid : s.badgePending}`}>{app.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></td>
+                      <td><span style={{ fontSize: '0.82rem', color: '#374151' }}>{fmt(app.created_at)}</span></td>
+                      <td className={s.actionsCell} style={{ paddingRight: '1.25rem' }}>
+                        <div className={s.actionBtns}>
+                          <Link href={`/admin/dashboard/applications/${app.id}`} className={s.btnIcon} title="View">
+                            <i className="fas fa-eye" />
                           </Link>
-                          
-                          <button 
-                            className="btn btn-outline-info btn-sm"
-                            onClick={() => {
-                              const downloadUrl = `${API_URL}/applications/${application.id}/download`;
-                              window.open(downloadUrl, '_blank');
-                            }}
-                            title="Download Application"
-                          >
-                            <i className="fas fa-download"></i>
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -311,8 +182,33 @@ export default function UnderReviewPage() {
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
+
+            {/* Mobile cards */}
+            <div className={s.mobileList}>
+              {filtered.map(app => (
+                <div key={app.id} className={s.mobileCard}>
+                  <div className={s.mobileCardHead}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input type="checkbox" className={s.checkbox} checked={selected.includes(app.id)} onChange={() => toggle(app.id)} />
+                      <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                      <span className={s.tdName}>{app.applicant_name || 'Unknown'}</span>
+                    </div>
+                    <span className={`${s.badge} ${app.payment_status === 'paid' ? s.badgePaid : s.badgePending}`}>{app.payment_status === 'paid' ? 'Paid' : 'Pending'}</span>
+                  </div>
+                  <div className={s.mobileCardBody}>
+                    <div className={s.mobileCardRow}><span className={s.mobileCardKey}>App No.</span><span className={s.mobileCardVal}><span className={s.tdMono} style={{ fontSize: '0.72rem' }}>{app.application_number || `APP-${app.id}`}</span></span></div>
+                    <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Program</span><span className={s.mobileCardVal}>{app.schema_display_name || app.schema_name || 'N/A'}</span></div>
+                    <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Submitted</span><span className={s.mobileCardVal}>{fmt(app.created_at)}</span></div>
+                  </div>
+                  <div className={s.mobileCardFoot}>
+                    <Link href={`/admin/dashboard/applications/${app.id}`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}><i className="fas fa-eye" />View</Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {filtered.length > 0 && <div className={s.cardFooter}><span>Showing <strong>{filtered.length}</strong> of <strong>{applications.length}</strong> submitted applications</span></div>}
       </div>
     </div>
   );

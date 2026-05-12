@@ -4,706 +4,379 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useApplications, useStudents } from '@/hooks/useRedux';
+import { useApplications } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/student-portal.module.css';
+
+const inp = { width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 8, fontSize: '0.875rem', color: '#374151', background: '#fff', outline: 'none', boxSizing: 'border-box' };
 
 export default function NewApplicationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session, status } = useSession();
-  
+  const { status } = useSession();
   const { schemas, loading: schemasLoading, fetchApplicationSchemas, createApplication } = useApplications();
-  const { students, loading: studentsLoading, fetchStudents } = useStudents();
-  
-  const [schema, setSchema] = useState(null);
-  const [fields, setFields] = useState([]);
-  const [studentProfile, setStudentProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [profileChecked, setProfileChecked] = useState(false);
-  
-  const [formData, setFormData] = useState({});
-  const [uploadedFiles, setUploadedFiles] = useState({});
 
   const schemaId = searchParams.get('schema');
 
+  const [schema, setSchema]   = useState(null);
+  const [fields, setFields]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting]       = useState(false);
+  const [error, setError]                 = useState('');
+  const [formData, setFormData]           = useState({});
+  const [uploadedFiles, setUploadedFiles] = useState({});
+
   const fetchSchemaAndProfile = useCallback(async () => {
     try {
-      setLoading(true);
-      
-      // Fetch schemas if not already loaded
-      if (schemas.length === 0) {
-        await fetchApplicationSchemas();
-      }
-      
-      // Find the specific schema
-      const foundSchema = schemas.find(s => s.id == schemaId);
-      if (!foundSchema) {
-        setError('Schema not found');
+      setLoading(true); setError('');
+
+      if (schemas.length === 0) fetchApplicationSchemas();
+
+      const foundSchema = schemas.find(sc => sc.id == schemaId);
+      if (!foundSchema) { setError('Program not found'); return; }
+      setSchema(foundSchema);
+
+      const [fieldsRes, profileRes] = await Promise.all([
+        apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.FIELDS.GET_ALL(schemaId)),
+        apiService.get(API_ENDPOINTS.STUDENTS.GET_ME),
+      ]);
+
+      const fieldsData = fieldsRes.data?.fields || fieldsRes.data || [];
+      setFields(fieldsData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0)));
+
+      const student = profileRes.data || profileRes;
+
+      if (!student.profile_photo) {
+        setError('A profile photo is required before applying. Please upload your photo first.');
+        router.push(`/admin/dashboard/student-portal/profile/edit?redirect=/admin/dashboard/student-portal/applications/new?schema=${schemaId}`);
         return;
       }
-      setSchema(foundSchema);
-      
-      // Fetch schema fields - still using direct API call as schema fields are not yet in Redux
-      const fieldsResponse = await apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.FIELDS.GET_ALL(schemaId));
-      const fieldsData = fieldsResponse.data?.fields || fieldsResponse.data || [];
-      setFields(fieldsData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0)));
-      
-      // Always fetch a fresh student profile here so the profile photo
-      // requirement does not rely on stale Redux state after uploads.
-      const profileResponse = await apiService.get(API_ENDPOINTS.STUDENTS.GET_ME);
-      const studentData = profileResponse.data || profileResponse;
-      setStudentProfile(studentData);
-      setProfileChecked(true);
 
-      // Pre-fill basic info from student profile
       setFormData({
-        applicant_name: `${studentData.first_name} ${studentData.last_name}`,
-        applicant_email: studentData.email,
-        applicant_phone: studentData.phone || '',
-        date_of_birth: studentData.date_of_birth ? studentData.date_of_birth.split('T')[0] : '',
-        gender: studentData.gender || '',
-        address: studentData.address || '',
-        city: studentData.city || '',
-        state: studentData.state || '',
-        country: studentData.country || 'Nigeria',
-        guardian_name: studentData.guardian_name || '',
-        guardian_phone: studentData.guardian_phone || '',
-        guardian_email: studentData.guardian_email || ''
+        applicant_name:  `${student.first_name} ${student.last_name}`,
+        applicant_email: student.email,
+        applicant_phone: student.phone || '',
+        date_of_birth:   student.date_of_birth ? student.date_of_birth.split('T')[0] : '',
+        gender:          student.gender || '',
+        address:         student.address || '',
+        city:            student.city || '',
+        state:           student.state || '',
+        country:         student.country || 'Nigeria',
+        guardian_name:   student.guardian_name || '',
+        guardian_phone:  student.guardian_phone || '',
+        guardian_email:  student.guardian_email || '',
       });
-      
-    } catch (err) {
-      console.error('❌ Error fetching data:', err);
-      setError('Failed to load application form');
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    schemas,
-    schemaId,
-    students,
-    session?.user?.email,
-    fetchApplicationSchemas
-  ]);
+    } catch { setError('Failed to load application form'); }
+    finally { setLoading(false); }
+  }, [schemas, schemaId, fetchApplicationSchemas, router]);
 
   useEffect(() => {
-    if (status === 'authenticated' && schemaId) {
-      fetchSchemaAndProfile();
-    }
+    if (status === 'authenticated' && schemaId) fetchSchemaAndProfile();
   }, [status, schemaId, fetchSchemaAndProfile]);
 
-  useEffect(() => {
-    if (status === 'authenticated' && students.length === 0) {
-      fetchStudents();
-    }
-  }, [status, students.length, fetchStudents]);
-
-  useEffect(() => {
-    if (profileChecked && studentProfile && !studentProfile.profile_photo) {
-      const redirect = () => {
-        alert('Profile photo is required for exam card generation. Please upload your profile photo first.');
-        router.push('/admin/dashboard/student-portal/profile/edit?redirect=/admin/dashboard/student-portal/applications/new?schema=' + schemaId);
-      };
-
-      const timer = setTimeout(redirect, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [profileChecked, studentProfile, schemaId, router]);
-
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (error) setError('');
   };
 
   const handleFileChange = (fieldName, e) => {
     const file = e.target.files[0];
-    if (file) {
-      setUploadedFiles(prev => ({
-        ...prev,
-        [fieldName]: file
-      }));
-    }
+    if (file) setUploadedFiles(prev => ({ ...prev, [fieldName]: file }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSubmitting(true);
-    setError('');
-    
     try {
-      // Prepare custom_data from dynamic fields
+      setSubmitting(true); setError('');
       const customData = {};
-      fields.forEach(field => {
-        if (formData[field.field_name]) {
-          customData[field.field_name] = formData[field.field_name];
-        }
+      fields.forEach(field => { if (formData[field.field_name]) customData[field.field_name] = formData[field.field_name]; });
+
+      createApplication({
+        schema_id: schemaId, applicant_name: formData.applicant_name,
+        applicant_email: formData.applicant_email, applicant_phone: formData.applicant_phone,
+        date_of_birth: formData.date_of_birth, gender: formData.gender,
+        address: formData.address, city: formData.city, state: formData.state,
+        country: formData.country, guardian_name: formData.guardian_name,
+        guardian_phone: formData.guardian_phone, guardian_email: formData.guardian_email,
+        custom_data: customData,
       });
-      
-      const applicationData = {
-        schema_id: schemaId,
-        applicant_name: formData.applicant_name,
-        applicant_email: formData.applicant_email,
-        applicant_phone: formData.applicant_phone,
-        date_of_birth: formData.date_of_birth,
-        gender: formData.gender,
-        address: formData.address,
-        city: formData.city,
-        state: formData.state,
-        country: formData.country,
-        guardian_name: formData.guardian_name,
-        guardian_phone: formData.guardian_phone,
-        guardian_email: formData.guardian_email,
-        custom_data: customData
-      };
-      
-      console.log('📤 Submitting application:', applicationData);
-      
-      // Use Redux action instead of direct API call
-      const response = await createApplication(applicationData);
-      console.log('✅ Application created:', response);
-      
-      const applicationId = response?.id || response?.application?.id;
-      
-      alert('Application submitted successfully!');
-      
-      // Redirect to payment if there's an application fee
-      if (schema.application_fee > 0 && applicationId) {
-        router.push(`/admin/dashboard/student-portal/payments/pay/${applicationId}`);
-      } else {
-        router.push('/admin/dashboard/student-portal/applications');
-      }
-      
+
+      router.push('/admin/dashboard/student-portal/applications');
     } catch (err) {
-      console.error('❌ Error submitting application:', err);
       setError(err.response?.data?.message || 'Failed to submit application');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
 
   const renderField = (field) => {
-    const commonProps = {
-      name: field.field_name,
-      value: formData[field.field_name] || '',
-      onChange: handleInputChange,
-      required: field.is_required,
-      placeholder: field.placeholder || '',
-      className: 'form-control'
-    };
-
+    const common = { name: field.field_name, value: formData[field.field_name] || '', onChange: handleChange, required: field.is_required, placeholder: field.placeholder || '', style: inp };
     switch (field.field_type) {
-      case 'text':
-      case 'email':
-      case 'phone':
-      case 'url':
-        return <input type={field.field_type === 'phone' ? 'tel' : field.field_type} {...commonProps} />;
-      
-      case 'number':
-        return <input type="number" {...commonProps} />;
-      
-      case 'date':
-        return <input type="date" {...commonProps} />;
-      
-      case 'textarea':
-        return <textarea {...commonProps} rows="3"></textarea>;
-      
-      case 'select':
-        return (
-          <select {...commonProps} className="form-select">
-            <option value="">Select an option</option>
-            {field.field_options && field.field_options.split(',').map((option, i) => (
-              <option key={i} value={option.trim()}>
-                {option.trim()}
-              </option>
-            ))}
-          </select>
-        );
-      
-      case 'radio':
-        return (
-          <div>
-            {field.field_options && field.field_options.split(',').map((option, i) => (
-              <div key={i} className="form-check">
-                <input
-                  className="form-check-input"
-                  type="radio"
-                  name={field.field_name}
-                  value={option.trim()}
-                  checked={formData[field.field_name] === option.trim()}
-                  onChange={handleInputChange}
-                  required={field.is_required}
-                />
-                <label className="form-check-label">{option.trim()}</label>
-              </div>
-            ))}
-          </div>
-        );
-      
-      case 'checkbox':
-        return (
-          <div>
-            {field.field_options && field.field_options.split(',').map((option, i) => (
-              <div key={i} className="form-check">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  name={`${field.field_name}_${i}`}
-                  value={option.trim()}
-                  onChange={(e) => {
-                    const current = formData[field.field_name] || [];
-                    const newValue = e.target.checked
-                      ? [...current, option.trim()]
-                      : current.filter(v => v !== option.trim());
-                    setFormData(prev => ({...prev, [field.field_name]: newValue}));
-                  }}
-                />
-                <label className="form-check-label">{option.trim()}</label>
-              </div>
-            ))}
-          </div>
-        );
-      
-      case 'file':
-        return (
-          <div>
-            <input
-              type="file"
-              className="form-control"
-              onChange={(e) => handleFileChange(field.field_name, e)}
-              required={field.is_required}
-            />
-            {uploadedFiles[field.field_name] && (
-              <small className="text-success d-block mt-1">
-                <i className="fas fa-check-circle me-1"></i>
-                {uploadedFiles[field.field_name].name}
-              </small>
-            )}
-          </div>
-        );
-      
-      default:
-        return <input type="text" {...commonProps} />;
+      case 'textarea': return <textarea {...common} rows={3} style={{ ...inp, resize: 'vertical' }} />;
+      case 'select': return (
+        <select {...common} style={inp}>
+          <option value="">Select an option</option>
+          {field.field_options && field.field_options.split(',').map((opt, i) => <option key={i} value={opt.trim()}>{opt.trim()}</option>)}
+        </select>
+      );
+      case 'radio': return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {field.field_options && field.field_options.split(',').map((opt, i) => (
+            <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.875rem', cursor: 'pointer' }}>
+              <input type="radio" name={field.field_name} value={opt.trim()} checked={formData[field.field_name] === opt.trim()} onChange={handleChange} required={field.is_required} />
+              {opt.trim()}
+            </label>
+          ))}
+        </div>
+      );
+      case 'checkbox': return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {field.field_options && field.field_options.split(',').map((opt, i) => (
+            <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.875rem', cursor: 'pointer' }}>
+              <input type="checkbox" value={opt.trim()} onChange={(e) => {
+                const current = formData[field.field_name] || [];
+                const newVal = e.target.checked ? [...current, opt.trim()] : current.filter(v => v !== opt.trim());
+                setFormData(prev => ({ ...prev, [field.field_name]: newVal }));
+              }} />
+              {opt.trim()}
+            </label>
+          ))}
+        </div>
+      );
+      case 'file': return (
+        <div>
+          <input type="file" style={inp} onChange={(e) => handleFileChange(field.field_name, e)} required={field.is_required} />
+          {uploadedFiles[field.field_name] && (
+            <p style={{ fontSize: '0.8rem', color: '#059669', margin: '0.25rem 0 0' }}>
+              <i className="fas fa-check-circle" style={{ marginRight: 4 }} />{uploadedFiles[field.field_name].name}
+            </p>
+          )}
+        </div>
+      );
+      default: return <input type={field.field_type === 'phone' ? 'tel' : field.field_type || 'text'} {...common} />;
     }
   };
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="spinner-border text-success" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  const lbl = (text, required) => (
+    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '0.3rem' }}>
+      {text}{required && <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>}
+    </label>
+  );
+
+  const field = (label, child, required) => (
+    <div style={{ marginBottom: '1rem' }}>
+      {lbl(label, required)}
+      {child}
+    </div>
+  );
+
+  if (loading || schemasLoading || status === 'loading') {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#059669' }} role="status" /></div>;
   }
 
   if (!schema) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-warning">
-          <h5>Program Not Found</h5>
-          <p>The selected program is not available.</p>
-          <Link href="/admin/dashboard/student-portal/applications/browse" className="btn btn-primary">
-            Browse Programs
-          </Link>
+      <div className={s.wrap}>
+        <div className={s.alertWarning}>
+          <i className="fas fa-exclamation-triangle" style={{ marginRight: 8 }} />Program not found.
         </div>
+        <Link href="/admin/dashboard/student-portal/applications/browse" className={s.btnOutline} style={{ marginTop: '0.75rem', display: 'inline-flex' }}>
+          <i className="fas fa-search" />Browse Programs
+        </Link>
       </div>
     );
   }
 
+  const docFields = fields.filter(f => f.field_type === 'file');
+
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="mb-4">
-        <h2 className="h4 mb-1">
-          <i className="fas fa-file-alt text-success me-2"></i>
-          New Application
-        </h2>
-        <p className="text-muted mb-0">{schema.display_name || schema.schema_name}</p>
+    <div className={s.wrap}>
+
+      <div className={s.pageHeader}>
+        <div>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#d1fae5', color: '#059669' }}><i className="fas fa-file-alt" /></span>
+            New Application
+          </h1>
+          <p className={s.pageSub}>{schema.display_name || schema.schema_name}</p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <Link href="/admin/dashboard/student-portal/applications/browse" className={s.btnOutline}>
+            <i className="fas fa-arrow-left" />Browse
+          </Link>
+        </div>
       </div>
 
-      {/* Error Alert */}
       {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError('')}></button>
+        <div className={s.alertDanger} style={{ marginBottom: '1rem' }}>
+          <i className="fas fa-exclamation-triangle" style={{ marginRight: 8 }} />{error}
+          <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b' }}><i className="fas fa-times" /></button>
         </div>
       )}
 
       {/* Progress Steps */}
-      <div className="card border-0 shadow-sm mb-4">
-        <div className="card-body">
-          <div className="d-flex justify-content-between align-items-center">
-            <div className="text-center flex-fill">
-              <div className="step-circle active">1</div>
-              <small className="d-block mt-2">Fill Form</small>
-            </div>
-            <div className="step-line"></div>
-            <div className="text-center flex-fill">
-              <div className="step-circle">2</div>
-              <small className="d-block mt-2">Review</small>
-            </div>
-            <div className="step-line"></div>
-            <div className="text-center flex-fill">
-              <div className="step-circle">3</div>
-              <small className="d-block mt-2">Payment</small>
-            </div>
+      <div className={s.card} style={{ marginBottom: '1.25rem' }}>
+        <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0 }}>
+            {[{ n: 1, label: 'Fill Form', active: true }, { n: 2, label: 'Review', active: false }, { n: 3, label: 'Payment', active: false }].map((step, idx) => (
+              <div key={step.n} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: step.active ? '#059669' : '#e5e7eb', color: step.active ? '#fff' : '#6b7280', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.95rem' }}>{step.n}</div>
+                  <div style={{ fontSize: '0.78rem', color: step.active ? '#059669' : '#9ca3af', marginTop: 4 }}>{step.label}</div>
+                </div>
+                {idx < 2 && <div style={{ height: 2, background: '#e5e7eb', flex: 1, margin: '0 0.5rem' }} />}
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div className="row">
-          <div className="col-lg-8">
-            {/* Basic Information (Pre-filled) */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-primary text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-user me-2"></i>
-                  Basic Information
-                </h5>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+
+          {/* Left column: forms */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+            {/* Basic Information */}
+            <div className={s.formSection}>
+              <div className={s.formSectionHead}>
+                <div className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-user" /></div>
+                <span className={s.formSectionTitle}>Basic Information</span>
               </div>
-              <div className="card-body">
-                <div className="alert alert-info">
-                  <i className="fas fa-info-circle me-2"></i>
-                  <strong>Pre-filled from your profile.</strong> You can edit if needed.
+              <div className={s.formSectionBody}>
+                <div className={s.alertInfo} style={{ marginBottom: '1rem' }}>
+                  <i className="fas fa-info-circle" style={{ marginRight: 6 }} />
+                  <span style={{ fontSize: '0.82rem' }}>Pre-filled from your profile — edit if needed.</span>
                 </div>
-                
-                <div className="row">
-                  <div className="col-md-12 mb-3">
-                    <label className="form-label">
-                      Full Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="applicant_name"
-                      value={formData.applicant_name}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Email <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      name="applicant_email"
-                      value={formData.applicant_email}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Phone <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="tel"
-                      className="form-control"
-                      name="applicant_phone"
-                      value={formData.applicant_phone}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Date of Birth</label>
-                    <input
-                      type="date"
-                      className="form-control"
-                      name="date_of_birth"
-                      value={formData.date_of_birth}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Gender</label>
-                    <select
-                      className="form-control"
-                      name="gender"
-                      value={formData.gender}
-                      onChange={handleInputChange}
-                    >
-                      <option value="">Select Gender</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-
-                  <div className="col-md-12 mb-3">
-                    <label className="form-label">Address</label>
-                    <textarea
-                      className="form-control"
-                      name="address"
-                      value={formData.address}
-                      onChange={handleInputChange}
-                      rows="3"
-                      placeholder="Enter your full address"
-                    />
-                  </div>
-
-                  <div className="col-md-4 mb-3">
-                    <label className="form-label">City</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="city"
-                      value={formData.city}
-                      onChange={handleInputChange}
-                      placeholder="City"
-                    />
-                  </div>
-
-                  <div className="col-md-4 mb-3">
-                    <label className="form-label">State</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="state"
-                      value={formData.state}
-                      onChange={handleInputChange}
-                      placeholder="State"
-                    />
-                  </div>
-
-                  <div className="col-md-4 mb-3">
-                    <label className="form-label">Country</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="country"
-                      value={formData.country}
-                      onChange={handleInputChange}
-                      placeholder="Country"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Guardian/Parent Information */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-warning text-dark">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-user-friends me-2"></i>
-                  Guardian/Parent Information
-                </h5>
-              </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-12 mb-3">
-                    <label className="form-label">Guardian Name</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="guardian_name"
-                      value={formData.guardian_name}
-                      onChange={handleInputChange}
-                      placeholder="Parent/Guardian full name"
-                    />
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Guardian Phone</label>
-                    <input
-                      type="tel"
-                      className="form-control"
-                      name="guardian_phone"
-                      value={formData.guardian_phone}
-                      onChange={handleInputChange}
-                      placeholder="+234 XXX XXX XXXX"
-                    />
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Guardian Email</label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      name="guardian_email"
-                      value={formData.guardian_email}
-                      onChange={handleInputChange}
-                      placeholder="guardian@email.com"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Dynamic Fields from Schema */}
-            {fields.length > 0 && (
-              <div className="card border-0 shadow-sm mb-4">
-                <div className="card-header bg-success text-white">
-                  <h5 className="card-title mb-0">
-                    <i className="fas fa-edit me-2"></i>
-                    Additional Information
-                  </h5>
-                </div>
-                <div className="card-body">
-                  <div className="row">
-                    {fields.map((field) => (
-                      <div key={field.id} className="col-md-12 mb-3">
-                        <label className="form-label">
-                          {field.field_label}
-                          {field.is_required && <span className="text-danger ms-1">*</span>}
-                        </label>
-                        {renderField(field)}
-                      </div>
+                {field('Full Name', <input type="text" name="applicant_name" value={formData.applicant_name || ''} onChange={handleChange} required style={inp} />, true)}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div>{field('Email', <input type="email" name="applicant_email" value={formData.applicant_email || ''} onChange={handleChange} required style={inp} />, true)}</div>
+                  <div>{field('Phone', <input type="tel" name="applicant_phone" value={formData.applicant_phone || ''} onChange={handleChange} required style={inp} />, true)}</div>
+                  <div>{field('Date of Birth', <input type="date" name="date_of_birth" value={formData.date_of_birth || ''} onChange={handleChange} style={inp} />)}</div>
+                  <div>
+                    {field('Gender', (
+                      <select name="gender" value={formData.gender || ''} onChange={handleChange} style={inp}>
+                        <option value="">Select Gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
                     ))}
                   </div>
+                </div>
+                {field('Address', <textarea name="address" value={formData.address || ''} onChange={handleChange} rows={2} placeholder="Full address" style={{ ...inp, resize: 'vertical' }} />)}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                  <div>{field('City',    <input type="text" name="city"    value={formData.city    || ''} onChange={handleChange} style={inp} />)}</div>
+                  <div>{field('State',   <input type="text" name="state"   value={formData.state   || ''} onChange={handleChange} style={inp} />)}</div>
+                  <div>{field('Country', <input type="text" name="country" value={formData.country || ''} onChange={handleChange} style={inp} />)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Guardian */}
+            <div className={s.formSection}>
+              <div className={s.formSectionHead}>
+                <div className={s.iconBox} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-user-friends" /></div>
+                <span className={s.formSectionTitle}>Guardian / Parent</span>
+              </div>
+              <div className={s.formSectionBody}>
+                {field('Guardian Name', <input type="text" name="guardian_name" value={formData.guardian_name || ''} onChange={handleChange} placeholder="Full name" style={inp} />)}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div>{field('Phone', <input type="tel" name="guardian_phone" value={formData.guardian_phone || ''} onChange={handleChange} placeholder="+234 XXX XXX XXXX" style={inp} />)}</div>
+                  <div>{field('Email', <input type="email" name="guardian_email" value={formData.guardian_email || ''} onChange={handleChange} placeholder="guardian@email.com" style={inp} />)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Dynamic Fields */}
+            {fields.length > 0 && (
+              <div className={s.formSection}>
+                <div className={s.formSectionHead}>
+                  <div className={s.iconBox} style={{ background: '#d1fae5', color: '#059669' }}><i className="fas fa-edit" /></div>
+                  <span className={s.formSectionTitle}>Additional Information</span>
+                </div>
+                <div className={s.formSectionBody}>
+                  {fields.map(f => (
+                    <div key={f.id} style={{ marginBottom: '1rem' }}>
+                      {lbl(f.field_label, f.is_required)}
+                      {renderField(f)}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* Submit Buttons */}
-            <div className="d-flex gap-2 mb-4">
-              <button
-                type="submit"
-                className="btn btn-success btn-lg"
-                disabled={submitting}
-              >
-                {submitting ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin me-2"></i>
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-paper-plane me-2"></i>
-                    Submit Application
-                  </>
-                )}
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button type="submit" className={s.btnGreen} disabled={submitting} style={{ flex: 1 }}>
+                {submitting
+                  ? <><span className="spinner-border spinner-border-sm" />Submitting…</>
+                  : <><i className="fas fa-paper-plane" />Submit Application</>}
               </button>
-              
-              <button
-                type="button"
-                className="btn btn-outline-secondary btn-lg"
-                disabled={submitting}
-              >
-                <i className="fas fa-save me-2"></i>
-                Save as Draft
-              </button>
-              
-              <Link
-                href="/admin/dashboard/student-portal/applications/browse"
-                className="btn btn-outline-danger btn-lg"
-              >
-                Cancel
+              <Link href="/admin/dashboard/student-portal/applications/browse" className={s.btnOutline}>
+                <i className="fas fa-times" />Cancel
               </Link>
             </div>
           </div>
 
-          {/* Sidebar - Application Summary */}
-          <div className="col-lg-4">
-            {/* Program Info */}
-            <div className="card border-0 shadow-sm mb-4 sticky-top" style={{ top: '20px' }}>
-              <div className="card-header bg-gradient-primary text-white">
-                <h6 className="card-title mb-0">
-                  <i className="fas fa-info-circle me-2"></i>
+          {/* Sidebar: Application Summary */}
+          <div>
+            <div className={s.card} style={{ position: 'sticky', top: 20 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#d1fae5', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                    <i className="fas fa-info-circle" style={{ fontSize: '0.75rem' }} />
+                  </span>
                   Application Summary
-                </h6>
+                </span>
               </div>
-              <div className="card-body">
-                <h6 className="mb-3">{schema.display_name}</h6>
-                
-                <div className="mb-3 p-3 bg-light rounded">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <span className="small text-muted">Application Fee:</span>
-                    <strong className="text-success fs-5">
-                      ₦{parseFloat(schema.application_fee || 0).toLocaleString()}
-                    </strong>
+              <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b', marginBottom: '0.75rem' }}>{schema.display_name}</div>
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>Application Fee</span>
+                    <strong style={{ color: '#059669', fontSize: '1.1rem' }}>₦{parseFloat(schema.application_fee || 0).toLocaleString()}</strong>
                   </div>
-                  <small className="text-muted d-block">
-                    To be paid after submission
-                  </small>
+                  <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: 0 }}>Payable after submission</p>
                 </div>
 
-                <div className="mb-3">
-                  <h6 className="small mb-2">Your Information:</h6>
-                  <div className="small">
-                    <div className="d-flex justify-content-between mb-1">
-                      <span className="text-muted">Name:</span>
-                      <strong>{formData.applicant_name || 'Not filled'}</strong>
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '0.4rem' }}>Your Information</p>
+                  {[
+                    { label: 'Name',  value: formData.applicant_name },
+                    { label: 'Email', value: formData.applicant_email },
+                    { label: 'Phone', value: formData.applicant_phone },
+                  ].map(row => (
+                    <div key={row.label} className={s.infoRow}>
+                      <span className={s.infoLabel}>{row.label}</span>
+                      <span className={s.infoValue}>{row.value || '—'}</span>
                     </div>
-                    <div className="d-flex justify-content-between mb-1">
-                      <span className="text-muted">Email:</span>
-                      <span>{formData.applicant_email || 'Not filled'}</span>
-                    </div>
-                    <div className="d-flex justify-content-between">
-                      <span className="text-muted">Phone:</span>
-                      <span>{formData.applicant_phone || 'Not filled'}</span>
-                    </div>
+                  ))}
+                </div>
+
+                {docFields.length > 0 && (
+                  <div style={{ marginBottom: '0.75rem' }}>
+                    <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '0.4rem' }}>Required Documents</p>
+                    <ul style={{ fontSize: '0.8rem', color: '#374151', paddingLeft: '1rem', margin: 0, lineHeight: 2 }}>
+                      {docFields.map(f => (
+                        <li key={f.id}>
+                          {f.field_label}
+                          {uploadedFiles[f.field_name] && <i className="fas fa-check-circle" style={{ color: '#059669', marginLeft: 6 }} />}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                </div>
+                )}
 
-                <hr />
-
-                <div className="mb-3">
-                  <h6 className="small mb-2">Required Documents:</h6>
-                  <ul className="small mb-0 ps-3">
-                    {fields.filter(f => f.field_type === 'file').map(f => (
-                      <li key={f.id}>
-                        {f.field_label}
-                        {uploadedFiles[f.field_name] && (
-                          <i className="fas fa-check-circle text-success ms-2"></i>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="alert alert-warning small mb-0">
-                  <i className="fas fa-exclamation-triangle me-1"></i>
-                  <strong>Note:</strong> Review all information before submitting. 
-                  You can save as draft and continue later.
+                <div className={s.alertWarning} style={{ margin: 0 }}>
+                  <i className="fas fa-exclamation-triangle" />
+                  <span style={{ fontSize: '0.78rem' }}>Review all information before submitting.</span>
                 </div>
               </div>
             </div>
           </div>
+
         </div>
       </form>
-
-      <style jsx>{`
-        .step-circle {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: #e9ecef;
-          color: #6c757d;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: bold;
-        }
-
-        .step-circle.active {
-          background: #27ae60;
-          color: white;
-        }
-
-        .step-line {
-          height: 2px;
-          background: #e9ecef;
-          flex: 1;
-          margin: 0 1rem;
-        }
-
-        .bg-gradient-primary {
-          background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
-        }
-      `}</style>
     </div>
   );
 }

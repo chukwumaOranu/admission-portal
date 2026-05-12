@@ -1,712 +1,360 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useExams } from '@/hooks/useRedux';
 import { usePermissions } from '@/hooks/usePermissions';
+import s from '@/styles/admin-portal.module.css';
 
-const EntryDatesPage = () => {
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+
+const BLANK = {
+  exam_title: '', exam_description: '', exam_date: '', exam_time: '',
+  exam_duration: 120, exam_venue: '', exam_address: '', max_capacity: 100,
+  registration_deadline: '', instructions: '', requirements: '', is_active: true,
+};
+
+export default function EntryDatesPage() {
   const { data: session, status } = useSession();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
-  
-  // ✅ Redux - Simple unified hook
-  const { 
-    entryDates, 
-    loading, 
-    error, 
-    fetchEntryDates, 
-    createEntryDate, 
-    updateEntryDate, 
-    deleteEntryDate, 
-    clearError 
-  } = useExams();
+  const { entryDates, loading, error, fetchEntryDates, createEntryDate, updateEntryDate, deleteEntryDate, clearError } = useExams();
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showViewModal, setShowViewModal] = useState(false);
-  const [selectedEntryDate, setSelectedEntryDate] = useState(null);
-  const [notice, setNotice] = useState('');
-  const [newEntryDate, setNewEntryDate] = useState({
-    exam_title: '',
-    exam_description: '',
-    exam_date: '',
-    exam_time: '',
-    exam_duration: 120,
-    exam_venue: '',
-    exam_address: '',
-    max_capacity: 100,
-    registration_deadline: '',
-    instructions: '',
-    requirements: '',
-    is_active: true
-  });
+  const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit]     = useState(false);
+  const [showView, setShowView]     = useState(false);
+  const [selected, setSelected]     = useState(null);
+  const [form, setForm]             = useState(BLANK);
+  const [notice, setNotice]         = useState('');
+  const loadedRef = useRef(false);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchEntryDates();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchEntryDates();
     }
-  }, [status, fetchEntryDates]);
+  }, [status, session?.user?.id, fetchEntryDates]);
 
-  const handleCreateEntryDate = async (e) => {
-    e.preventDefault();
+  const field = (key, val) => setForm(p => ({ ...p, [key]: val }));
+  const eField = (key, val) => setSelected(p => ({ ...p, [key]: val }));
+
+  const handleCreate = async (e) => {
+    e.preventDefault(); clearError(); setNotice('');
     try {
-      setNotice('');
-      clearError();
-      await createEntryDate(newEntryDate).unwrap();
+      createEntryDate(form);
       await fetchEntryDates();
-      setShowCreateModal(false);
-      setNewEntryDate({
-        exam_title: '',
-        exam_description: '',
-        exam_date: '',
-        exam_time: '',
-        exam_duration: 120,
-        exam_venue: '',
-        exam_address: '',
-        max_capacity: 100,
-        registration_deadline: '',
-        instructions: '',
-        requirements: '',
-        is_active: true
-      });
+      setShowCreate(false); setForm(BLANK);
       setNotice('Entry date created successfully.');
-    } catch (error) {
-      console.error('Error creating entry date:', error);
-      setNotice('');
-    }
+    } catch { /* error shown from redux */ }
   };
 
-  const handleEditEntryDate = async (e) => {
-    e.preventDefault();
+  const handleEdit = async (e) => {
+    e.preventDefault(); clearError(); setNotice('');
     try {
-      setNotice('');
-      clearError();
-      await updateEntryDate(selectedEntryDate.id, selectedEntryDate).unwrap();
+      updateEntryDate(selected.id, selected);
       await fetchEntryDates();
-      setShowEditModal(false);
-      setSelectedEntryDate(null);
+      setShowEdit(false); setSelected(null);
       setNotice('Entry date updated successfully.');
-    } catch (error) {
-      console.error('Error updating entry date:', error);
-      setNotice('');
-    }
+    } catch { /* error shown from redux */ }
   };
 
-  const handleDeleteEntryDate = async (id) => {
-    if (window.confirm('Are you sure you want to delete this entry date?')) {
-      try {
-        setNotice('');
-        clearError();
-        await deleteEntryDate(id).unwrap();
-        await fetchEntryDates();
-        setNotice('Entry date deleted successfully.');
-      } catch (error) {
-        console.error('Error deleting entry date:', error);
-        setNotice('');
-      }
-    }
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this entry date?')) return;
+    clearError(); setNotice('');
+    try {
+      deleteEntryDate(id);
+      await fetchEntryDates();
+      setNotice('Entry date deleted.');
+    } catch { /* error shown from redux */ }
   };
 
-  const openEditModal = (entryDate) => {
-    setSelectedEntryDate({ ...entryDate });
-    setShowEditModal(true);
+  const isRegOpen = (ed) => ed.is_active && new Date() <= new Date(ed.registration_deadline);
+
+  const stats = {
+    total:    entryDates.length,
+    active:   entryDates.filter(e => e.is_active).length,
+    upcoming: entryDates.filter(e => new Date(e.exam_date) > new Date()).length,
+    open:     entryDates.filter(e => isRegOpen(e)).length,
   };
 
-  const openViewModal = (entryDate) => {
-    setSelectedEntryDate({ ...entryDate });
-    setShowViewModal(true);
-  };
-
-  const isRegistrationOpen = (entryDate) => {
-    const now = new Date();
-    const deadline = new Date(entryDate.registration_deadline);
-    return now <= deadline && entryDate.is_active;
-  };
-
-  // Show loading state while permissions are being loaded
   if (permissionsLoading || status === 'loading') {
-    return (
-      <div className="container-fluid">
-        <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-          <p className="mt-3 text-muted">Loading...</p>
-        </div>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   if (!hasPermission('entry_date.read')) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-danger">
-          <h4>Access Denied</h4>
-          <p>You don&apos;t have permission to view entry dates.</p>
-        </div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to view entry dates.</div>
       </div>
     );
   }
 
-  return (
-    <div className="container-fluid">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+  const FormFields = ({ data, onChange }) => (
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
         <div>
-          <h2>Entry Exam Dates</h2>
-          <p className="text-muted">Manage examination dates and venues</p>
+          <label className={s.formLabel}>Exam Title *</label>
+          <input className={s.formInput} type="text" value={data.exam_title} onChange={e => onChange('exam_title', e.target.value)} required />
+        </div>
+        <div>
+          <label className={s.formLabel}>Venue *</label>
+          <input className={s.formInput} type="text" value={data.exam_venue} onChange={e => onChange('exam_venue', e.target.value)} required />
+        </div>
+      </div>
+      <div>
+        <label className={s.formLabel}>Description</label>
+        <textarea className={s.formInput} rows={2} value={data.exam_description} onChange={e => onChange('exam_description', e.target.value)} style={{ resize: 'vertical' }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+        <div>
+          <label className={s.formLabel}>Exam Date *</label>
+          <input className={s.formInput} type="date" value={data.exam_date} onChange={e => onChange('exam_date', e.target.value)} required />
+        </div>
+        <div>
+          <label className={s.formLabel}>Time *</label>
+          <input className={s.formInput} type="time" value={data.exam_time} onChange={e => onChange('exam_time', e.target.value)} required />
+        </div>
+        <div>
+          <label className={s.formLabel}>Duration (min)</label>
+          <input className={s.formInput} type="number" min={30} max={300} value={data.exam_duration} onChange={e => onChange('exam_duration', parseInt(e.target.value))} />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div>
+          <label className={s.formLabel}>Max Capacity</label>
+          <input className={s.formInput} type="number" min={1} value={data.max_capacity} onChange={e => onChange('max_capacity', parseInt(e.target.value))} />
+        </div>
+        <div>
+          <label className={s.formLabel}>Registration Deadline *</label>
+          <input className={s.formInput} type="date" value={data.registration_deadline} onChange={e => onChange('registration_deadline', e.target.value)} required />
+        </div>
+      </div>
+      <div>
+        <label className={s.formLabel}>Address</label>
+        <textarea className={s.formInput} rows={2} value={data.exam_address} onChange={e => onChange('exam_address', e.target.value)} style={{ resize: 'vertical' }} />
+      </div>
+      <div>
+        <label className={s.formLabel}>Instructions</label>
+        <textarea className={s.formInput} rows={2} value={data.instructions} onChange={e => onChange('instructions', e.target.value)} style={{ resize: 'vertical' }} />
+      </div>
+      <div>
+        <label className={s.formLabel}>Requirements</label>
+        <textarea className={s.formInput} rows={2} value={data.requirements} onChange={e => onChange('requirements', e.target.value)} style={{ resize: 'vertical' }} />
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, color: '#374151' }}>
+        <input type="checkbox" checked={data.is_active} onChange={e => onChange('is_active', e.target.checked)} style={{ width: 16, height: 16 }} />
+        Active
+      </label>
+    </>
+  );
+
+  return (
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
+        <div>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-calendar-alt" /></span>
+            Entry Exam Dates
+          </h1>
+          <p className={s.pageSub}>Manage examination dates, venues, and registration</p>
         </div>
         {hasPermission('entry_date.create') && (
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowCreateModal(true)}
-            disabled={loading}
-          >
-            {loading ? 'Loading...' : 'Add Entry Date'}
-          </button>
+          <div className={s.pageActions}>
+            <button onClick={() => setShowCreate(true)} className={`${s.btn} ${s.btnPrimary}`}>
+              <i className="fas fa-plus" />Add Entry Date
+            </button>
+          </div>
         )}
       </div>
 
       {error && (
-        <div className="alert alert-danger alert-dismissible fade show" role="alert">
-          {error}
-          <button type="button" className="btn-close" onClick={clearError}></button>
+        <div className={`${s.alert} ${s.alertDanger}`}>
+          <i className="fas fa-exclamation-triangle" />{error}
+          <button onClick={clearError} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button>
         </div>
       )}
       {notice && (
-        <div className="alert alert-success alert-dismissible fade show" role="alert">
-          {notice}
-          <button type="button" className="btn-close" onClick={() => setNotice('')}></button>
+        <div className={`${s.alert} ${s.alertSuccess}`}>
+          <i className="fas fa-check-circle" />{notice}
+          <button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button>
         </div>
       )}
 
-      {/* Loading State */}
-      {loading && (
-        <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '200px' }}>
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && (!entryDates || entryDates.length === 0) && (
-        <div className="card border-0 shadow-sm">
-          <div className="card-body text-center py-5">
-            <i className="fas fa-calendar-alt text-muted" style={{ fontSize: '4rem' }}></i>
-            <h5 className="mt-3 text-muted">No Entry Dates Found</h5>
-            <p className="text-muted">You haven&apos;t created any exam entry dates yet.</p>
-            {hasPermission('entry_date.create') && (
-              <button
-                className="btn btn-primary mt-3"
-                onClick={() => setShowCreateModal(true)}
-              >
-                <i className="fas fa-plus me-2"></i>
-                Create First Entry Date
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Entry Dates List */}
-      {!loading && entryDates && entryDates.length > 0 && (
-        <div className="row">
-        {(entryDates || []).filter(entryDate => entryDate && entryDate.id).map((entryDate) => (
-          <div key={entryDate.id} className="col-md-6 col-lg-4 mb-4">
-            <div className="card h-100">
-              <div className="card-header d-flex justify-content-between align-items-center">
-                <h5 className="card-title mb-0">{entryDate.exam_title || 'Untitled Exam'}</h5>
-                <span className={`badge ${entryDate.is_active ? 'bg-success' : 'bg-secondary'}`}>
-                  {entryDate.is_active ? 'Active' : 'Inactive'}
-                </span>
-              </div>
-              <div className="card-body">
-                <p className="card-text">{entryDate.exam_description || 'No description provided'}</p>
-                <div className="mb-2">
-                  <strong>Date:</strong> {entryDate.exam_date ? new Date(entryDate.exam_date).toLocaleDateString() : 'Not set'}
-                </div>
-                <div className="mb-2">
-                  <strong>Time:</strong> {entryDate.exam_time || 'Not set'}
-                </div>
-                <div className="mb-2">
-                  <strong>Duration:</strong> {entryDate.exam_duration || 0} minutes
-                </div>
-                <div className="mb-2">
-                  <strong>Venue:</strong> {entryDate.exam_venue || 'Not set'}
-                </div>
-                <div className="mb-2">
-                  <strong>Capacity:</strong> {entryDate.current_registrations || 0}/{entryDate.max_capacity || 0}
-                </div>
-                <div className="mb-2">
-                  <strong>Deadline:</strong> {entryDate.registration_deadline ? new Date(entryDate.registration_deadline).toLocaleDateString() : 'Not set'}
-                </div>
-                <div className="mb-3">
-                  <div className="progress">
-                    <div
-                      className="progress-bar"
-                      role="progressbar"
-                      style={{ width: `${(entryDate.current_registrations / entryDate.max_capacity) * 100}%` }}
-                    ></div>
-                  </div>
-                </div>
-                {isRegistrationOpen(entryDate) && (
-                  <div className="alert alert-info">
-                    <i className="fas fa-info-circle me-2"></i>
-                    Registration is open
-                  </div>
-                )}
-              </div>
-              <div className="card-footer">
-                <div className="btn-group w-100" role="group">
-                  <button className="btn btn-sm btn-outline-primary" onClick={() => openViewModal(entryDate)}>
-                    <i className="fas fa-eye"></i> View
-                  </button>
-                  {hasPermission('entry_date.update') && (
-                    <button
-                      className="btn btn-sm btn-outline-warning"
-                      onClick={() => openEditModal(entryDate)}
-                    >
-                      <i className="fas fa-edit"></i> Edit
-                    </button>
-                  )}
-                  {hasPermission('entry_date.delete') && (
-                    <button
-                      className="btn btn-sm btn-outline-danger"
-                      onClick={() => handleDeleteEntryDate(entryDate.id)}
-                      disabled={loading}
-                    >
-                      <i className="fas fa-trash"></i> Delete
-                    </button>
-                  )}
-                </div>
-              </div>
+      {/* Stat cards */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total',    value: stats.total,    icon: 'fas fa-calendar-alt',   color: '#d97706' },
+          { label: 'Active',   value: stats.active,   icon: 'fas fa-check-circle',   color: '#059669' },
+          { label: 'Upcoming', value: stats.upcoming, icon: 'fas fa-calendar-check', color: '#2563eb' },
+          { label: 'Reg Open', value: stats.open,     icon: 'fas fa-door-open',      color: '#0891b2' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
+            </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}>
+              <i className={st.icon} />
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+      ) : !entryDates.length ? (
+        <div className={s.card}>
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-calendar-alt" /></div>
+            <div className={s.emptyTitle}>No Entry Dates Yet</div>
+            <p className={s.emptySub}>Create the first exam entry date to get started.</p>
+            {hasPermission('entry_date.create') && (
+              <button onClick={() => setShowCreate(true)} className={`${s.btn} ${s.btnPrimary}`}><i className="fas fa-plus" />Add Entry Date</button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
+          {entryDates.filter(ed => ed && ed.id).map(ed => {
+            const pct = ed.max_capacity ? Math.min(100, Math.round((ed.current_registrations || 0) / ed.max_capacity * 100)) : 0;
+            const regOpen = isRegOpen(ed);
+            return (
+              <div key={ed.id} className={s.card} style={{ marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e3a5f', marginBottom: '0.2rem' }}>{ed.exam_title || 'Untitled'}</div>
+                    <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>{ed.exam_venue || 'No venue'}</div>
+                  </div>
+                  <span className={`${s.badge} ${ed.is_active ? s.badgeActive : s.badgeInactive}`}>
+                    {ed.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+                <div style={{ padding: '0.875rem 1.25rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {ed.exam_description && <p style={{ fontSize: '0.82rem', color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{ed.exam_description}</p>}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 1rem', fontSize: '0.82rem' }}>
+                    <div><span style={{ color: '#9ca3af' }}>Date:</span> <strong style={{ color: '#374151' }}>{fmtDate(ed.exam_date)}</strong></div>
+                    <div><span style={{ color: '#9ca3af' }}>Time:</span> <strong style={{ color: '#374151' }}>{ed.exam_time || '—'}</strong></div>
+                    <div><span style={{ color: '#9ca3af' }}>Duration:</span> <strong style={{ color: '#374151' }}>{ed.exam_duration} min</strong></div>
+                    <div><span style={{ color: '#9ca3af' }}>Deadline:</span> <strong style={{ color: '#374151' }}>{fmtDate(ed.registration_deadline)}</strong></div>
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#6b7280', marginBottom: '0.3rem' }}>
+                      <span>Capacity</span>
+                      <span><strong>{ed.current_registrations || 0}</strong> / {ed.max_capacity}</span>
+                    </div>
+                    <div style={{ height: 6, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: pct >= 90 ? '#dc2626' : pct >= 60 ? '#d97706' : '#059669', borderRadius: 999, transition: 'width 0.3s' }} />
+                    </div>
+                  </div>
+                  {regOpen && (
+                    <div style={{ fontSize: '0.78rem', color: '#0891b2', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <i className="fas fa-door-open" />Registration Open
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #f0f4f8', display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={() => { setSelected({ ...ed }); setShowView(true); }} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`} style={{ flex: 1 }}>
+                    <i className="fas fa-eye" />View
+                  </button>
+                  {hasPermission('entry_date.update') && (
+                    <button onClick={() => { setSelected({ ...ed }); setShowEdit(true); }} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`} style={{ flex: 1 }}>
+                      <i className="fas fa-edit" />Edit
+                    </button>
+                  )}
+                  {hasPermission('entry_date.delete') && (
+                    <button onClick={() => handleDelete(ed.id)} className={`${s.btn} ${s.btnDanger} ${s.btnSm}`} style={{ flex: 1 }}>
+                      <i className="fas fa-trash" />Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Create Entry Date Modal */}
-      {showViewModal && selectedEntryDate && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Exam Entry Date Details</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowViewModal(false)}
-                ></button>
+      {/* View Modal */}
+      {showView && selected && (
+        <div className={s.modalOverlay} onClick={() => setShowView(false)}>
+          <div className={s.modalBox} style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+            <div className={s.modalHead}>
+              <span className={s.modalTitle}><i className="fas fa-calendar-alt" style={{ color: '#d97706' }} />{selected.exam_title}</span>
+              <button className={s.modalClose} onClick={() => setShowView(false)}><i className="fas fa-times" /></button>
+            </div>
+            <div className={s.modalBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span className={`${s.badge} ${selected.is_active ? s.badgeActive : s.badgeInactive}`}>{selected.is_active ? 'Active' : 'Inactive'}</span>
+                {isRegOpen(selected) && <span className={`${s.badge} ${s.badgeInfo}`}>Registration Open</span>}
               </div>
-              <div className="modal-body">
-                <div className="row">
-                  <div className="col-md-8">
-                    <h5 className="mb-1">{selectedEntryDate.exam_title || 'Untitled Exam'}</h5>
-                    <p className="text-muted mb-3">{selectedEntryDate.exam_description || 'No description provided'}</p>
-                  </div>
-                  <div className="col-md-4 text-md-end">
-                    <span className={`badge ${selectedEntryDate.is_active ? 'bg-success' : 'bg-secondary'}`}>
-                      {selectedEntryDate.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="row g-3">
-                  <div className="col-md-6">
-                    <div><strong>Date:</strong> {selectedEntryDate.exam_date ? new Date(selectedEntryDate.exam_date).toLocaleDateString() : 'Not set'}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <div><strong>Time:</strong> {selectedEntryDate.exam_time || 'Not set'}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <div><strong>Venue:</strong> {selectedEntryDate.exam_venue || 'Not set'}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <div><strong>Duration:</strong> {selectedEntryDate.exam_duration || 0} minutes</div>
-                  </div>
-                  <div className="col-md-6">
-                    <div><strong>Registration Deadline:</strong> {selectedEntryDate.registration_deadline ? new Date(selectedEntryDate.registration_deadline).toLocaleDateString() : 'Not set'}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <div><strong>Capacity:</strong> {selectedEntryDate.current_registrations || 0}/{selectedEntryDate.max_capacity || 0}</div>
-                  </div>
-                </div>
-
-                {selectedEntryDate.exam_address && (
-                  <div className="mt-3">
-                    <strong>Address:</strong>
-                    <p className="mb-0 text-muted">{selectedEntryDate.exam_address}</p>
-                  </div>
-                )}
-
-                {selectedEntryDate.instructions && (
-                  <div className="mt-3">
-                    <strong>Instructions:</strong>
-                    <p className="mb-0 text-muted">{selectedEntryDate.instructions}</p>
-                  </div>
-                )}
-
-                {selectedEntryDate.requirements && (
-                  <div className="mt-3">
-                    <strong>Requirements:</strong>
-                    <p className="mb-0 text-muted">{selectedEntryDate.requirements}</p>
-                  </div>
-                )}
+              {selected.exam_description && <p style={{ fontSize: '0.875rem', color: '#6b7280', margin: 0 }}>{selected.exam_description}</p>}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1.5rem', fontSize: '0.875rem' }}>
+                {[
+                  ['Date', fmtDate(selected.exam_date)], ['Time', selected.exam_time || '—'],
+                  ['Venue', selected.exam_venue || '—'], ['Duration', `${selected.exam_duration} min`],
+                  ['Capacity', `${selected.current_registrations || 0} / ${selected.max_capacity}`],
+                  ['Deadline', fmtDate(selected.registration_deadline)],
+                ].map(([k, v]) => (
+                  <div key={k}><span style={{ color: '#9ca3af' }}>{k}:</span> <strong style={{ color: '#374151' }}>{v}</strong></div>
+                ))}
               </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setShowViewModal(false)}
-                >
-                  Close
+              {selected.exam_address && <div style={{ fontSize: '0.875rem' }}><span style={{ color: '#9ca3af' }}>Address:</span> <span style={{ color: '#374151' }}>{selected.exam_address}</span></div>}
+              {selected.instructions && <div style={{ fontSize: '0.875rem' }}><span style={{ color: '#9ca3af' }}>Instructions:</span> <span style={{ color: '#374151' }}>{selected.instructions}</span></div>}
+              {selected.requirements && <div style={{ fontSize: '0.875rem' }}><span style={{ color: '#9ca3af' }}>Requirements:</span> <span style={{ color: '#374151' }}>{selected.requirements}</span></div>}
+            </div>
+            <div className={s.modalFoot}>
+              <button onClick={() => setShowView(false)} className={`${s.btn} ${s.btnOutline}`}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Modal */}
+      {showCreate && (
+        <div className={s.modalOverlay} onClick={() => setShowCreate(false)}>
+          <div className={s.modalBox} style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+            <form onSubmit={handleCreate}>
+              <div className={s.modalHead}>
+                <span className={s.modalTitle}><i className="fas fa-plus" style={{ color: '#d97706' }} />Add Entry Date</span>
+                <button type="button" className={s.modalClose} onClick={() => setShowCreate(false)}><i className="fas fa-times" /></button>
+              </div>
+              <div className={s.modalBody} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '65vh', overflowY: 'auto' }}>
+                <FormFields data={form} onChange={field} />
+              </div>
+              <div className={s.modalFoot}>
+                <button type="button" onClick={() => setShowCreate(false)} className={`${s.btn} ${s.btnOutline}`}>Cancel</button>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={loading}>
+                  {loading ? <><span className="spinner-border spinner-border-sm" />Creating…</> : <><i className="fas fa-plus" />Create</>}
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Create Entry Date Modal */}
-      {showCreateModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg">
-            <div className="modal-content">
-              <form onSubmit={handleCreateEntryDate}>
-                <div className="modal-header">
-                  <h5 className="modal-title">Add Entry Exam Date</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowCreateModal(false)}
-                  ></button>
-                </div>
-                <div className="modal-body">
-                  <div className="row">
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="exam_title" className="form-label">Exam Title</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          id="exam_title"
-                          value={newEntryDate.exam_title}
-                          onChange={(e) => setNewEntryDate({ ...newEntryDate, exam_title: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="exam_venue" className="form-label">Exam Venue</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          id="exam_venue"
-                          value={newEntryDate.exam_venue}
-                          onChange={(e) => setNewEntryDate({ ...newEntryDate, exam_venue: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label htmlFor="exam_description" className="form-label">Description</label>
-                    <textarea
-                      className="form-control"
-                      id="exam_description"
-                      rows="3"
-                      value={newEntryDate.exam_description}
-                      onChange={(e) => setNewEntryDate({ ...newEntryDate, exam_description: e.target.value })}
-                    ></textarea>
-                  </div>
-                  <div className="row">
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label htmlFor="exam_date" className="form-label">Exam Date</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          id="exam_date"
-                          value={newEntryDate.exam_date}
-                          onChange={(e) => setNewEntryDate({ ...newEntryDate, exam_date: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label htmlFor="exam_time" className="form-label">Exam Time</label>
-                        <input
-                          type="time"
-                          className="form-control"
-                          id="exam_time"
-                          value={newEntryDate.exam_time}
-                          onChange={(e) => setNewEntryDate({ ...newEntryDate, exam_time: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label htmlFor="exam_duration" className="form-label">Duration (minutes)</label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          id="exam_duration"
-                          value={newEntryDate.exam_duration}
-                          onChange={(e) => setNewEntryDate({ ...newEntryDate, exam_duration: parseInt(e.target.value) })}
-                          min="30"
-                          max="300"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="row">
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="max_capacity" className="form-label">Max Capacity</label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          id="max_capacity"
-                          value={newEntryDate.max_capacity}
-                          onChange={(e) => setNewEntryDate({ ...newEntryDate, max_capacity: parseInt(e.target.value) })}
-                          min="1"
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="registration_deadline" className="form-label">Registration Deadline</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          id="registration_deadline"
-                          value={newEntryDate.registration_deadline}
-                          onChange={(e) => setNewEntryDate({ ...newEntryDate, registration_deadline: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label htmlFor="exam_address" className="form-label">Exam Address</label>
-                    <textarea
-                      className="form-control"
-                      id="exam_address"
-                      rows="2"
-                      value={newEntryDate.exam_address}
-                      onChange={(e) => setNewEntryDate({ ...newEntryDate, exam_address: e.target.value })}
-                    ></textarea>
-                  </div>
-                  <div className="mb-3">
-                    <label htmlFor="instructions" className="form-label">Instructions</label>
-                    <textarea
-                      className="form-control"
-                      id="instructions"
-                      rows="3"
-                      value={newEntryDate.instructions}
-                      onChange={(e) => setNewEntryDate({ ...newEntryDate, instructions: e.target.value })}
-                    ></textarea>
-                  </div>
-                  <div className="mb-3">
-                    <label htmlFor="requirements" className="form-label">Requirements</label>
-                    <textarea
-                      className="form-control"
-                      id="requirements"
-                      rows="3"
-                      value={newEntryDate.requirements}
-                      onChange={(e) => setNewEntryDate({ ...newEntryDate, requirements: e.target.value })}
-                    ></textarea>
-                  </div>
-                  <div className="form-check">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="is_active"
-                      checked={newEntryDate.is_active}
-                      onChange={(e) => setNewEntryDate({ ...newEntryDate, is_active: e.target.checked })}
-                    />
-                    <label className="form-check-label" htmlFor="is_active">
-                      Active
-                    </label>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowCreateModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn btn-primary" disabled={loading}>
-                    {loading ? 'Creating...' : 'Create Entry Date'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Entry Date Modal */}
-      {showEditModal && selectedEntryDate && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg">
-            <div className="modal-content">
-              <form onSubmit={handleEditEntryDate}>
-                <div className="modal-header">
-                  <h5 className="modal-title">Edit Entry Exam Date</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowEditModal(false)}
-                  ></button>
-                </div>
-                <div className="modal-body">
-                  <div className="row">
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="edit_exam_title" className="form-label">Exam Title</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          id="edit_exam_title"
-                          value={selectedEntryDate.exam_title}
-                          onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, exam_title: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="edit_exam_venue" className="form-label">Exam Venue</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          id="edit_exam_venue"
-                          value={selectedEntryDate.exam_venue}
-                          onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, exam_venue: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label htmlFor="edit_exam_description" className="form-label">Description</label>
-                    <textarea
-                      className="form-control"
-                      id="edit_exam_description"
-                      rows="3"
-                      value={selectedEntryDate.exam_description}
-                      onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, exam_description: e.target.value })}
-                    ></textarea>
-                  </div>
-                  <div className="row">
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label htmlFor="edit_exam_date" className="form-label">Exam Date</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          id="edit_exam_date"
-                          value={selectedEntryDate.exam_date}
-                          onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, exam_date: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label htmlFor="edit_exam_time" className="form-label">Exam Time</label>
-                        <input
-                          type="time"
-                          className="form-control"
-                          id="edit_exam_time"
-                          value={selectedEntryDate.exam_time}
-                          onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, exam_time: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-4">
-                      <div className="mb-3">
-                        <label htmlFor="edit_exam_duration" className="form-label">Duration (minutes)</label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          id="edit_exam_duration"
-                          value={selectedEntryDate.exam_duration}
-                          onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, exam_duration: parseInt(e.target.value) })}
-                          min="30"
-                          max="300"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="row">
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="edit_max_capacity" className="form-label">Max Capacity</label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          id="edit_max_capacity"
-                          value={selectedEntryDate.max_capacity}
-                          onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, max_capacity: parseInt(e.target.value) })}
-                          min="1"
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="mb-3">
-                        <label htmlFor="edit_registration_deadline" className="form-label">Registration Deadline</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          id="edit_registration_deadline"
-                          value={selectedEntryDate.registration_deadline}
-                          onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, registration_deadline: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="form-check">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="edit_is_active"
-                      checked={selectedEntryDate.is_active}
-                      onChange={(e) => setSelectedEntryDate({ ...selectedEntryDate, is_active: e.target.checked })}
-                    />
-                    <label className="form-check-label" htmlFor="edit_is_active">
-                      Active
-                    </label>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowEditModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn btn-primary" disabled={loading}>
-                    {loading ? 'Updating...' : 'Update Entry Date'}
-                  </button>
-                </div>
-              </form>
-            </div>
+      {/* Edit Modal */}
+      {showEdit && selected && (
+        <div className={s.modalOverlay} onClick={() => setShowEdit(false)}>
+          <div className={s.modalBox} style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+            <form onSubmit={handleEdit}>
+              <div className={s.modalHead}>
+                <span className={s.modalTitle}><i className="fas fa-edit" style={{ color: '#d97706' }} />Edit Entry Date</span>
+                <button type="button" className={s.modalClose} onClick={() => setShowEdit(false)}><i className="fas fa-times" /></button>
+              </div>
+              <div className={s.modalBody} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '65vh', overflowY: 'auto' }}>
+                <FormFields data={selected} onChange={eField} />
+              </div>
+              <div className={s.modalFoot}>
+                <button type="button" onClick={() => setShowEdit(false)} className={`${s.btn} ${s.btnOutline}`}>Cancel</button>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={loading}>
+                  {loading ? <><span className="spinner-border spinner-border-sm" />Saving…</> : <><i className="fas fa-save" />Save Changes</>}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
     </div>
   );
-};
-
-export default EntryDatesPage;
+}

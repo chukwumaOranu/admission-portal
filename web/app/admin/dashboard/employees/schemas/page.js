@@ -1,174 +1,146 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
 
 export default function EmployeeSchemasPage() {
   const { data: session, status } = useSession();
-  
-  const [schemas, setSchemas] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [schemas, setSchemas]   = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+  const [notice, setNotice]     = useState('');
+  const loadedRef = useRef(false);
 
   const fetchSchemas = async () => {
     try {
-      setLoading(true);
-      setError('');
-      const response = await apiService.get(API_ENDPOINTS.EMPLOYEES.SCHEMAS.GET_ALL);
-      setSchemas(response.data.schemas || []);
-    } catch (err) {
-      setError('Failed to fetch employee schemas');
-      console.error('Error fetching schemas:', err);
-    } finally {
-      setLoading(false);
-    }
+      setLoading(true); setError('');
+      const res = await apiService.get(API_ENDPOINTS.EMPLOYEES.SCHEMAS.GET_ALL);
+      setSchemas(res.data.schemas || []);
+    } catch { setError('Failed to load employee schemas'); }
+    finally { setLoading(false); }
   };
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      fetchSchemas();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchSchemas();
     }
-  }, [status, session?.user?.id, session?.accessToken]);
+  }, [status, session?.user?.id]);
 
-  // Show loading while checking authentication
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this employee schema?')) return;
+    try {
+      await apiService.delete(`${API_ENDPOINTS.EMPLOYEES.SCHEMAS.GET_ALL}/${id}`);
+      setNotice('Schema deleted.'); fetchSchemas();
+    } catch { setError('Failed to delete schema'); }
+  };
+
   if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
-  }
+  const active   = schemas.filter(s => s.is_active).length;
+  const inactive = schemas.filter(s => !s.is_active).length;
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-database text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#e0f2fe', color: '#0891b2' }}><i className="fas fa-database" /></span>
             Employee Schemas
-          </h2>
-          <p className="text-muted mb-0">Manage employee data schemas</p>
+          </h1>
+          <p className={s.pageSub}>Define data structures for employee records</p>
         </div>
-        <Link href="/admin/dashboard/employees/schemas/add" className="btn btn-primary-custom">
-          <i className="fas fa-plus me-2"></i>
-          Add Schema
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/employees" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Employees
+          </Link>
+          <Link href="/admin/dashboard/employees/schemas/add" className={`${s.btn} ${s.btnPrimary}`}>
+            <i className="fas fa-plus" />Add Schema
+          </Link>
+        </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          {error}
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
 
-      {/* Stats Card */}
-      <div className="row mb-4">
-        <div className="col-md-3">
-          <div className="stats-card">
-            <div className="d-flex justify-content-between">
-              <div>
-                <p className="stats-label">Total Schemas</p>
-                <h3 className="stats-number">{schemas.length}</h3>
-              </div>
-              <i className="fas fa-database text-primary fs-1 opacity-75"></i>
+      {/* Stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total',    value: schemas.length, icon: 'fas fa-database',     color: '#0891b2' },
+          { label: 'Active',   value: active,         icon: 'fas fa-check-circle', color: '#059669' },
+          { label: 'Inactive', value: inactive,       icon: 'fas fa-times-circle', color: '#dc2626' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
             </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Schemas List */}
       {loading ? (
-        <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
+        <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+      ) : schemas.length === 0 ? (
+        <div className={s.card}>
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#e0f2fe', color: '#0891b2' }}><i className="fas fa-database" /></div>
+            <div className={s.emptyTitle}>No Schemas Yet</div>
+            <p className={s.emptySub}>Create your first employee schema to define data structures.</p>
+            <Link href="/admin/dashboard/employees/schemas/add" className={`${s.btn} ${s.btnPrimary}`}><i className="fas fa-plus" />Add Schema</Link>
           </div>
-          <p className="mt-3 text-muted">Loading schemas...</p>
         </div>
       ) : (
-        <div className="row">
-          {schemas.map((schema) => (
-            <div key={schema.id} className="col-md-6 col-lg-4 mb-3">
-              <div className="card card-custom h-100">
-                <div className="card-body">
-                  <div className="d-flex justify-content-between align-items-start mb-2">
-                    <h6 className="card-title mb-0">{schema.display_name || schema.schema_name}</h6>
-                    <span className={`badge ${schema.is_active ? 'bg-success' : 'bg-danger'}`}>
-                      {schema.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <div className="d-flex align-items-center mb-2">
-                      <i className="fas fa-tag text-info me-2"></i>
-                      <span>{schema.schema_name}</span>
-                    </div>
-                    {schema.description && (
-                      <div className="d-flex align-items-center mb-2">
-                        <i className="fas fa-info-circle text-primary me-2"></i>
-                        <span>{schema.description}</span>
-                      </div>
-                    )}
-                    <div className="d-flex align-items-center">
-                      <i className="fas fa-calendar text-warning me-2"></i>
-                      <span>Created: {new Date(schema.created_at).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="d-flex gap-2">
-                    <Link 
-                      href={`/admin/dashboard/employees/schemas/edit/${schema.id}`}
-                      className="btn btn-outline-primary btn-sm"
-                    >
-                      <i className="fas fa-edit me-1"></i> Edit
-                    </Link>
-                    <button 
-                      className="btn btn-outline-danger btn-sm"
-                      onClick={() => {
-                        if (window.confirm('Are you sure you want to delete this schema?')) {
-                          console.log('Delete schema:', schema.id);
-                        }
-                      }}
-                    >
-                      <i className="fas fa-trash me-1"></i> Delete
-                    </button>
-                  </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem' }}>
+          {schemas.map(schema => (
+            <div key={schema.id} className={s.card} style={{ marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
+              {/* Card header */}
+              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: 32, height: 32, borderRadius: 8, background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2', flexShrink: 0 }}>
+                    <i className="fas fa-database" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e3a5f' }}>{schema.display_name || schema.schema_name}</span>
                 </div>
+                <span className={`${s.badge} ${schema.is_active ? s.badgeActive : s.badgeInactive}`}>
+                  {schema.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+
+              {/* Card body */}
+              <div style={{ padding: '0.875rem 1.25rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: '#6b7280' }}>
+                  <i className="fas fa-tag" style={{ color: '#0891b2', width: 14 }} />
+                  <code style={{ background: '#f1f5f9', padding: '0.1rem 0.35rem', borderRadius: 4, fontSize: '0.78rem', color: '#374151' }}>{schema.schema_name}</code>
+                </div>
+                {schema.description && (
+                  <p style={{ fontSize: '0.82rem', color: '#6b7280', margin: '0.25rem 0 0', lineHeight: 1.5 }}>{schema.description}</p>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: '#9ca3af', marginTop: 'auto', paddingTop: '0.25rem' }}>
+                  <i className="fas fa-calendar" />
+                  {schema.created_at ? new Date(schema.created_at).toLocaleDateString() : '—'}
+                </div>
+              </div>
+
+              {/* Card footer */}
+              <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #f0f4f8', display: 'flex', gap: '0.4rem' }}>
+                <Link href={`/admin/dashboard/employees/schemas/edit/${schema.id}`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`} style={{ flex: 1, justifyContent: 'center' }}>
+                  <i className="fas fa-edit" />Edit
+                </Link>
+                <button onClick={() => handleDelete(schema.id)} className={`${s.btnIcon} ${s.btnIconDanger}`} title="Delete">
+                  <i className="fas fa-trash" />
+                </button>
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && schemas.length === 0 && (
-        <div className="text-center py-5">
-          <i className="fas fa-database text-muted fs-1 mb-3"></i>
-          <h5 className="text-muted">No schemas found</h5>
-          <p className="text-muted">Create your first employee schema to get started.</p>
-          <Link href="/admin/dashboard/employees/schemas/add" className="btn btn-primary-custom">
-            <i className="fas fa-plus me-2"></i>
-            Add Schema
-          </Link>
         </div>
       )}
     </div>

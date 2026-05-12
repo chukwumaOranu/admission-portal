@@ -1,301 +1,246 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
+
+const fmtDt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
 export default function ViewApplicationSchemaPage() {
   const params = useParams();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state
+  const { hasPermission, loading: permLoading } = usePermissions();
   const { schemas, loading: reduxLoading, fetchApplicationSchemas } = useApplications();
-  
+
   const [schema, setSchema] = useState(null);
   const [fields, setFields] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError]   = useState('');
+  const loadedRef = useRef(false);
 
-  const fetchSchemaFields = useCallback(async () => {
+  const fetchFields = useCallback(async () => {
     try {
-      const fieldsResponse = await apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.FIELDS.GET_ALL(params.id));
-      const fieldsData = Array.isArray(fieldsResponse.data) ? fieldsResponse.data : (fieldsResponse.data?.data || []);
-      setFields(fieldsData.sort((a, b) => (a.display_order || 0) - (b.display_order || 0)));
-      setLoading(false);
-    } catch (err) {
-      console.error('❌ Error fetching fields:', err);
-      setLoading(false);
-    }
+      const res = await apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.FIELDS.GET_ALL(params.id));
+      const data = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      setFields(data.sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)));
+    } catch { /* fields stay empty */ }
+    finally { setLoading(false); }
   }, [params.id]);
 
   const fetchSchemaDetails = useCallback(async () => {
     try {
       setLoading(true);
-      
-      const schemaResponse = await apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.GET_BY_ID(params.id));
-      const schemaData = schemaResponse.data?.schema || schemaResponse.data?.data?.schema || schemaResponse.data;
-      setSchema(schemaData);
-      
-      await fetchSchemaFields();
-    } catch (err) {
-      console.error('❌ Error fetching schema:', err);
-      setError('Failed to load schema details');
-    } finally {
-      setLoading(false);
+      const res = await apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.GET_BY_ID(params.id));
+      const data = res.data?.schema ?? res.data?.data?.schema ?? res.data;
+      setSchema(data);
+      await fetchFields();
+    } catch { setError('Failed to load schema details'); setLoading(false); }
+  }, [params.id, fetchFields]);
+
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
+  useEffect(() => {
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true;
+      if (schemas.length === 0) fetchApplicationSchemas();
     }
-  }, [params.id, fetchSchemaFields]);
+  }, [status, session?.user?.id, schemas.length, fetchApplicationSchemas]);
 
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      // Fetch schemas from Redux if not already loaded
-      if (schemas.length === 0) {
-        fetchApplicationSchemas();
-      }
+    if (!params.id) return;
+    if (schemas.length > 0) {
+      const found = schemas.find(s => s.id === parseInt(params.id));
+      if (found) { setSchema(found); fetchFields(); return; }
     }
-  }, [status, session?.user?.id, session?.accessToken, schemas.length, fetchApplicationSchemas]);
+    if (!reduxLoading) fetchSchemaDetails();
+  }, [params.id, schemas, reduxLoading, fetchSchemaDetails, fetchFields]);
 
-  useEffect(() => {
-    // Find schema from Redux store
-    if (params.id && schemas.length > 0) {
-      const foundSchema = schemas.find(s => s.id === parseInt(params.id));
-      if (foundSchema) {
-        setSchema(foundSchema);
-        fetchSchemaFields();
-      }
-    } else if (params.id && !reduxLoading) {
-      // If schema not in Redux, fetch directly
-      fetchSchemaDetails();
-    }
-  }, [params.id, schemas, reduxLoading, fetchSchemaDetails, fetchSchemaFields]);
+  const required = fields.filter(f => f.is_required).length;
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading || loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   if (error || !schema) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-danger">
-          {error || 'Schema not found'}
-        </div>
-        <Link href="/admin/dashboard/applications/schemas" className="btn btn-primary">
-          Back to Schemas
-        </Link>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error || 'Schema not found.'}</div>
+        <Link href="/admin/dashboard/applications/schemas" className={`${s.btn} ${s.btnOutline}`}><i className="fas fa-arrow-left" />Back to Schemas</Link>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-eye text-primary me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-file-alt" /></span>
             Application Schema Details
-          </h2>
-          <p className="text-muted mb-0">{schema.display_name || schema.schema_name}</p>
+          </h1>
+          <p className={s.pageSub}>{schema.display_name || schema.schema_name}</p>
         </div>
-        <div className="d-flex gap-2">
-          <Link href="/admin/dashboard/applications/schemas" className="btn btn-outline-secondary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Schemas
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/applications/schemas" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Schemas
           </Link>
-          <Link href={`/admin/dashboard/applications/schemas/${params.id}/fields`} className="btn btn-success">
-            <i className="fas fa-list-ul me-2"></i>
-            Manage Fields
+          <Link href={`/admin/dashboard/applications/schemas/${params.id}/fields`} className={`${s.btn} ${s.btnGreen}`}>
+            <i className="fas fa-list-ul" />Fields
           </Link>
           {hasPermission('application_schema.update') && (
-            <Link href={`/admin/dashboard/applications/schemas/${params.id}/edit`} className="btn btn-primary">
-              <i className="fas fa-edit me-2"></i>
-              Edit Schema
+            <Link href={`/admin/dashboard/applications/schemas/${params.id}/edit`} className={`${s.btn} ${s.btnPrimary}`}>
+              <i className="fas fa-edit" />Edit
             </Link>
           )}
         </div>
       </div>
 
-      <div className="row">
-        {/* Schema Information */}
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-primary text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+
+        {/* Main content */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* Schema info */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <i className="fas fa-info-circle" style={{ fontSize: '0.75rem' }} />
+                </span>
                 Schema Information
-              </h5>
+              </span>
+              <span className={`${s.badge} ${schema.is_active ? s.badgeActive : s.badgeInactive}`}>{schema.is_active ? 'Active' : 'Inactive'}</span>
             </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small d-block mb-1">Schema Name (ID)</label>
-                  <p className="mb-0"><code>{schema.schema_name}</code></p>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {[
+                { label: 'Schema Name',    value: <code style={{ background: '#f1f5f9', padding: '0.15rem 0.4rem', borderRadius: 4, fontSize: '0.82rem' }}>{schema.schema_name}</code> },
+                { label: 'Display Name',   value: schema.display_name || '—' },
+                { label: 'Description',    value: schema.description || 'No description' },
+                { label: 'Application Fee', value: <strong style={{ color: '#059669' }}>₦{parseFloat(schema.application_fee || 0).toLocaleString()}</strong> },
+                { label: 'Created By',     value: schema.created_by_username || 'System' },
+                { label: 'Created',        value: fmtDt(schema.created_at) },
+                { label: 'Updated',        value: fmtDt(schema.updated_at) },
+              ].map(row => (
+                <div key={row.label} className={s.infoRow}>
+                  <span className={s.infoLabel}>{row.label}</span>
+                  <span className={s.infoValue}>{row.value}</span>
                 </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small d-block mb-1">Display Name</label>
-                  <p className="mb-0"><strong>{schema.display_name}</strong></p>
-                </div>
-                <div className="col-12 mb-3">
-                  <label className="text-muted small d-block mb-1">Description</label>
-                  <p className="mb-0">{schema.description || 'No description'}</p>
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small d-block mb-1">Application Fee</label>
-                  <p className="mb-0">
-                    <strong className="text-success fs-5">₦{parseFloat(schema.application_fee).toLocaleString()}</strong>
-                  </p>
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small d-block mb-1">Status</label>
-                  <p className="mb-0">
-                    <span className={`badge bg-${schema.is_active ? 'success' : 'secondary'}`}>
-                      {schema.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Form Fields */}
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-success text-white">
-              <div className="d-flex justify-content-between align-items-center">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-list-ul me-2"></i>
-                  Form Fields ({fields.length})
-                </h5>
-                <Link 
-                  href={`/admin/dashboard/applications/schemas/${params.id}/fields`}
-                  className="btn btn-sm btn-light"
-                >
-                  <i className="fas fa-cog me-2"></i>
-                  Manage Fields
-                </Link>
-              </div>
+          {/* Fields table */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader} style={{ justifyContent: 'space-between' }}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#d1fae5', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                  <i className="fas fa-list-ul" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Form Fields ({fields.length})
+              </span>
+              <Link href={`/admin/dashboard/applications/schemas/${params.id}/fields`} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`}>
+                <i className="fas fa-cog" />Manage
+              </Link>
             </div>
-            <div className="card-body">
-              {fields.length === 0 ? (
-                <div className="text-center py-4">
-                  <i className="fas fa-inbox text-muted" style={{ fontSize: '3rem' }}></i>
-                  <h6 className="mt-3 text-muted">No fields added yet</h6>
-                  <Link 
-                    href={`/admin/dashboard/applications/schemas/${params.id}/fields`}
-                    className="btn btn-sm btn-primary mt-2"
-                  >
-                    Add First Field
-                  </Link>
-                </div>
-              ) : (
-                <div className="table-responsive">
-                  <table className="table table-sm">
+
+            {fields.length === 0 ? (
+              <div className={s.emptyState}>
+                <div className={s.emptyIcon} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-inbox" /></div>
+                <div className={s.emptyTitle}>No Fields Added Yet</div>
+                <p className={s.emptySub}>Add fields to define the application form structure.</p>
+                <Link href={`/admin/dashboard/applications/schemas/${params.id}/fields`} className={`${s.btn} ${s.btnGreen}`}><i className="fas fa-plus" />Add Fields</Link>
+              </div>
+            ) : (
+              <>
+                <div className={s.tableWrap}>
+                  <table className={s.table}>
                     <thead>
                       <tr>
                         <th>#</th>
                         <th>Field Name</th>
                         <th>Label</th>
                         <th>Type</th>
-                        <th>Required</th>
+                        <th style={{ paddingRight: '1.25rem' }}>Required</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {fields.map((field, index) => (
+                      {fields.map((field, i) => (
                         <tr key={field.id}>
-                          <td>{index + 1}</td>
-                          <td><code className="small">{field.field_name}</code></td>
-                          <td>{field.field_label}</td>
-                          <td>
-                            <span className="badge bg-info">{field.field_type}</span>
-                          </td>
-                          <td>
-                            {field.is_required ? (
-                              <span className="badge bg-danger">Required</span>
-                            ) : (
-                              <span className="badge bg-secondary">Optional</span>
-                            )}
+                          <td><span style={{ fontSize: '0.82rem', color: '#9ca3af' }}>{i + 1}</span></td>
+                          <td><code style={{ background: '#f1f5f9', padding: '0.1rem 0.35rem', borderRadius: 4, fontSize: '0.78rem', color: '#374151' }}>{field.field_name}</code></td>
+                          <td><span style={{ fontSize: '0.82rem', color: '#374151' }}>{field.field_label}</span></td>
+                          <td><span className={`${s.badge} ${s.badgeInfo}`}>{field.field_type}</span></td>
+                          <td style={{ paddingRight: '1.25rem' }}>
+                            {field.is_required
+                              ? <span className={`${s.badge} ${s.badgeActive}`}>Required</span>
+                              : <span className={`${s.badge} ${s.badgeInactive}`}>Optional</span>}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
+                <div className={s.mobileList}>
+                  {fields.map((field) => (
+                    <div key={field.id} className={s.mobileCard}>
+                      <div className={s.mobileCardHead}>
+                        <span className={s.tdName}>{field.field_label}</span>
+                        <span className={`${s.badge} ${s.badgeInfo}`}>{field.field_type}</span>
+                      </div>
+                      <div className={s.mobileCardBody}>
+                        <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Name</span><span className={s.mobileCardVal}><code style={{ fontSize: '0.78rem' }}>{field.field_name}</code></span></div>
+                        <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Required</span><span className={s.mobileCardVal}>{field.is_required ? 'Yes' : 'No'}</span></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         {/* Sidebar */}
-        <div className="col-lg-4">
-          {/* Quick Actions */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-light">
-              <h6 className="card-title mb-0">
-                <i className="fas fa-bolt me-2"></i>
-                Quick Actions
-              </h6>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-chart-bar" style={{ color: '#2563eb' }} />Statistics</span>
             </div>
-            <div className="card-body p-2">
-              <Link 
-                href={`/admin/dashboard/applications/schemas/${params.id}/fields`}
-                className="btn btn-success btn-sm w-100 mb-2"
-              >
-                <i className="fas fa-list-ul me-2"></i>
-                Manage Fields
-              </Link>
-              {hasPermission('application_schema.update') && (
-                <Link 
-                  href={`/admin/dashboard/applications/schemas/${params.id}/edit`}
-                  className="btn btn-primary btn-sm w-100 mb-2"
-                >
-                  <i className="fas fa-edit me-2"></i>
-                  Edit Schema
-                </Link>
-              )}
-              <Link 
-                href="/admin/dashboard/applications/schemas"
-                className="btn btn-outline-secondary btn-sm w-100"
-              >
-                <i className="fas fa-arrow-left me-2"></i>
-                Back to List
-              </Link>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {[
+                { label: 'Total Fields',    value: fields.length,             color: '#2563eb' },
+                { label: 'Required Fields', value: required,                   color: '#dc2626' },
+                { label: 'Optional Fields', value: fields.length - required,  color: '#059669' },
+              ].map(st => (
+                <div key={st.label} className={s.infoRow}>
+                  <span className={s.infoLabel}>{st.label}</span>
+                  <span style={{ fontWeight: 800, fontSize: '1.1rem', color: st.color }}>{st.value}</span>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Schema Stats */}
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-light">
-              <h6 className="card-title mb-0">
-                <i className="fas fa-chart-bar me-2"></i>
-                Statistics
-              </h6>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-bolt" style={{ color: '#d97706' }} />Quick Actions</span>
             </div>
-            <div className="card-body">
-              <div className="mb-3">
-                <label className="text-muted small d-block mb-1">Total Fields</label>
-                <p className="mb-0"><strong className="fs-4">{fields.length}</strong></p>
-              </div>
-              <div className="mb-3">
-                <label className="text-muted small d-block mb-1">Required Fields</label>
-                <p className="mb-0"><strong className="fs-4">{fields.filter(f => f.is_required).length}</strong></p>
-              </div>
-              <div className="mb-3">
-                <label className="text-muted small d-block mb-1">Created By</label>
-                <p className="mb-0">{schema.created_by_username || 'System'}</p>
-              </div>
-              <div className="mb-0">
-                <label className="text-muted small d-block mb-1">Created On</label>
-                <p className="mb-0">{new Date(schema.created_at).toLocaleDateString()}</p>
-              </div>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <Link href={`/admin/dashboard/applications/schemas/${params.id}/fields`} className={`${s.btn} ${s.btnGreen}`} style={{ justifyContent: 'flex-start' }}>
+                <i className="fas fa-list-ul" />Manage Fields
+              </Link>
+              {hasPermission('application_schema.update') && (
+                <Link href={`/admin/dashboard/applications/schemas/${params.id}/edit`} className={`${s.btn} ${s.btnPrimary}`} style={{ justifyContent: 'flex-start' }}>
+                  <i className="fas fa-edit" />Edit Schema
+                </Link>
+              )}
+              <Link href="/admin/dashboard/applications/schemas" className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start' }}>
+                <i className="fas fa-arrow-left" />Back to List
+              </Link>
             </div>
           </div>
         </div>

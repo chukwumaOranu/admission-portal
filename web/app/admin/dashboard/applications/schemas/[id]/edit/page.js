@@ -1,328 +1,207 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
 
 export default function EditApplicationSchemaPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state
+  const { hasPermission, loading: permLoading } = usePermissions();
   const { schemas, loading: reduxLoading, fetchApplicationSchemas, updateApplicationSchema } = useApplications();
-  
+
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState('');
+  const [notice, setNotice]   = useState('');
+  const loadedRef = useRef(false);
+
   const [formData, setFormData] = useState({
-    schema_name: '',
-    display_name: '',
-    description: '',
-    application_fee: 0,
-    is_active: true
+    schema_name: '', display_name: '', description: '', application_fee: 0, is_active: true,
   });
 
   const fetchSchema = useCallback(async () => {
     try {
-      setLoading(true);
-      const response = await apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.GET_BY_ID(params.id));
-      const schema = response.data?.schema || response.data?.data?.schema || response.data;
-      
-      if (!schema) {
-        setError('Schema not found');
-        return;
-      }
-      
+      setLoading(true); setError('');
+      const res = await apiService.get(API_ENDPOINTS.APPLICATIONS.SCHEMAS.GET_BY_ID(params.id));
+      const sc = res.data?.schema || res.data?.data?.schema || res.data;
+      if (!sc) { setError('Schema not found'); return; }
       setFormData({
-        schema_name: schema.schema_name || '',
-        display_name: schema.display_name || '',
-        description: schema.description || '',
-        application_fee: schema.application_fee || 0,
-        is_active: Boolean(schema.is_active)
+        schema_name:      sc.schema_name || '',
+        display_name:     sc.display_name || '',
+        description:      sc.description || '',
+        application_fee:  sc.application_fee || 0,
+        is_active:        Boolean(sc.is_active),
       });
-    } catch (err) {
-      console.error('❌ Error fetching schema:', err);
-      setError('Failed to load schema');
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError('Failed to load schema'); }
+    finally { setLoading(false); }
   }, [params.id]);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      // Fetch schemas from Redux if not already loaded
-      if (schemas.length === 0) {
-        fetchApplicationSchemas();
-      }
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true;
+      if (schemas.length === 0) fetchApplicationSchemas();
     }
-  }, [status, session?.user?.id, session?.accessToken, schemas.length, fetchApplicationSchemas]);
+  }, [status, session?.user?.id, schemas.length, fetchApplicationSchemas]);
 
   useEffect(() => {
-    // Find schema from Redux store or fetch directly
     if (params.id && schemas.length > 0) {
-      const foundSchema = schemas.find(s => s.id === parseInt(params.id));
-      if (foundSchema) {
+      const found = schemas.find(sc => sc.id === parseInt(params.id, 10));
+      if (found) {
         setFormData({
-          schema_name: foundSchema.schema_name || '',
-          display_name: foundSchema.display_name || '',
-          description: foundSchema.description || '',
-          application_fee: foundSchema.application_fee || 0,
-          is_active: Boolean(foundSchema.is_active)
+          schema_name:     found.schema_name || '',
+          display_name:    found.display_name || '',
+          description:     found.description || '',
+          application_fee: found.application_fee || 0,
+          is_active:       Boolean(found.is_active),
         });
         setLoading(false);
-      }
-    } else if (params.id && !reduxLoading) {
-      fetchSchema();
-    }
+      } else if (!reduxLoading) { fetchSchema(); }
+    } else if (params.id && !reduxLoading) { fetchSchema(); }
   }, [params.id, schemas, reduxLoading, fetchSchema]);
 
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-    setError('');
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    if (error) setError('');
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setSubmitting(true);
-    setError('');
-    
-    try {
-      await updateApplicationSchema(params.id, formData);
-      setSuccess(true);
-      alert('Schema updated successfully!');
-      setTimeout(() => {
-        router.push(`/admin/dashboard/applications/schemas/${params.id}`);
-      }, 1000);
-    } catch (err) {
-      console.error('Error updating schema:', err);
-      setError(err.response?.data?.message || 'Failed to update schema');
-    } finally {
-      setSubmitting(false);
-    }
+    setSaving(true); setError(''); setNotice('');
+    updateApplicationSchema(params.id, formData);
+    setNotice('Schema updated successfully!');
+    setTimeout(() => router.push(`/admin/dashboard/applications/schemas/${params.id}`), 1500);
+    setSaving(false);
   };
 
-  if (status === 'loading' || loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'unauthenticated') {
-    window.location.href = '/login';
-    return null;
+  if (status === 'loading' || permLoading || loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   if (!hasPermission('application_schema.update')) {
     return (
-      <div className="alert alert-danger">
-        <h4 className="alert-heading">Access Denied</h4>
-        <p>You don&apos;t have permission to edit application schemas.</p>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to edit application schemas.</div>
+        <Link href={`/admin/dashboard/applications/schemas/${params.id}`} className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back</Link>
+      </div>
+    );
+  }
+
+  if (error && !formData.schema_name) {
+    return (
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>
+        <Link href="/admin/dashboard/applications/schemas" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Schemas</Link>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-edit text-primary me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-edit" /></span>
             Edit Application Schema
-          </h2>
-          <p className="text-muted mb-0">Update schema information</p>
+          </h1>
+          <p className={s.pageSub}>Update schema information</p>
         </div>
-        <Link href={`/admin/dashboard/applications/schemas/${params.id}`} className="btn btn-outline-secondary">
-          <i className="fas fa-arrow-left me-2"></i>
-          Cancel
-        </Link>
+        <div className={s.pageActions}>
+          <Link href={`/admin/dashboard/applications/schemas/${params.id}`} className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Back
+          </Link>
+        </div>
       </div>
 
-      {/* Success Alert */}
-      {success && (
-        <div className="alert alert-success alert-dismissible fade show">
-          <i className="fas fa-check-circle me-2"></i>
-          Schema updated successfully!
-          <button type="button" className="btn-close" onClick={() => setSuccess(false)}></button>
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}</div>}
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError('')}></button>
-        </div>
-      )}
-
-      {/* Form */}
       <form onSubmit={handleSubmit}>
-        <div className="row">
-          <div className="col-lg-8">
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-white">
-                <h5 className="card-title mb-0">Schema Details</h5>
-              </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Schema Name (ID) <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="schema_name"
-                      value={formData.schema_name}
-                      onChange={handleInputChange}
-                      required
-                      placeholder="e.g., primary_admission_2025"
-                    />
-                    <small className="text-muted">Lowercase, no spaces (use underscore)</small>
-                  </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Display Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="display_name"
-                      value={formData.display_name}
-                      onChange={handleInputChange}
-                      required
-                      placeholder="e.g., Primary School Admission 2025/2026"
-                    />
-                  </div>
-
-                  <div className="col-12 mb-3">
-                    <label className="form-label">Description</label>
-                    <textarea
-                      className="form-control"
-                      name="description"
-                      value={formData.description}
-                      onChange={handleInputChange}
-                      rows="3"
-                      placeholder="Describe this application program..."
-                    ></textarea>
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">
-                      Application Fee (₦) <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      name="application_fee"
-                      value={formData.application_fee}
-                      onChange={handleInputChange}
-                      required
-                      min="0"
-                      step="100"
-                    />
-                  </div>
-
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Status</label>
-                    <div className="form-check form-switch mt-2">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="is_active"
-                        checked={formData.is_active}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        {formData.is_active ? 'Active' : 'Inactive'}
-                      </label>
-                    </div>
-                    <small className="text-muted">
-                      {formData.is_active 
-                        ? 'Students can apply using this schema' 
-                        : 'Schema is hidden from students'}
-                    </small>
-                  </div>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <i className="fas fa-file-alt" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Schema Details
+              </span>
+            </div>
+            <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label className={s.formLabel}>Schema Name <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input type="text" className={s.formInput} name="schema_name" value={formData.schema_name} onChange={handleChange} required placeholder="e.g., primary_admission_2025" disabled={saving} />
+                  <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>Lowercase, underscores only</p>
+                </div>
+                <div>
+                  <label className={s.formLabel}>Display Name <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input type="text" className={s.formInput} name="display_name" value={formData.display_name} onChange={handleChange} required placeholder="e.g., Primary Admission 2025" disabled={saving} />
                 </div>
               </div>
-            </div>
-
-            {/* Submit Buttons */}
-            <div className="d-flex gap-2 mb-4">
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={submitting}
-              >
-                {submitting ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin me-2"></i>
-                    Updating...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-save me-2"></i>
-                    Update Schema
-                  </>
-                )}
-              </button>
-              
-              <Link
-                href={`/admin/dashboard/applications/schemas/${params.id}`}
-                className="btn btn-outline-secondary"
-              >
-                Cancel
-              </Link>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Description</label>
+                <textarea className={s.formInput} name="description" value={formData.description} onChange={handleChange} rows={3} placeholder="Describe this application program…" style={{ resize: 'vertical' }} disabled={saving} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                <div>
+                  <label className={s.formLabel}>Application Fee (₦) <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input type="number" className={s.formInput} name="application_fee" value={formData.application_fee} onChange={handleChange} required min="0" step="100" disabled={saving} />
+                </div>
+                <div>
+                  <label className={s.formLabel}>Status</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem', cursor: 'pointer', fontSize: '0.875rem', color: '#374151' }}>
+                    <input type="checkbox" name="is_active" checked={formData.is_active} onChange={handleChange} style={{ width: 15, height: 15, accentColor: '#059669' }} disabled={saving} />
+                    {formData.is_active ? 'Active' : 'Inactive'}
+                  </label>
+                  <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>{formData.is_active ? 'Students can apply with this schema' : 'Hidden from students'}</p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
+                  {saving ? <><span className="spinner-border spinner-border-sm" />Updating…</> : <><i className="fas fa-save" />Update Schema</>}
+                </button>
+                <Link href={`/admin/dashboard/applications/schemas/${params.id}`} className={`${s.btn} ${s.btnOutline}`}>
+                  <i className="fas fa-times" />Cancel
+                </Link>
+              </div>
             </div>
           </div>
 
-          {/* Sidebar Help */}
-          <div className="col-lg-4">
-            <div className="card border-0 shadow-sm">
-              <div className="card-header bg-info text-white">
-                <h6 className="card-title mb-0">
-                  <i className="fas fa-info-circle me-2"></i>
-                  Editing Schema
-                </h6>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                    <i className="fas fa-lightbulb" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  Notes
+                </span>
               </div>
-              <div className="card-body">
-                <div className="alert alert-warning mb-3">
-                  <h6><i className="fas fa-exclamation-triangle me-2"></i>Note:</h6>
-                  <ul className="mb-0 small">
-                    <li>Changing schema name may affect existing applications</li>
-                    <li>Deactivating hides it from students</li>
-                    <li>Fee changes won&apos;t affect submitted applications</li>
-                  </ul>
-                </div>
-
-                <h6 className="small">Fields Management:</h6>
-                <p className="small mb-0">
-                  To add, edit, or remove form fields, use the 
-                  <Link href={`/admin/dashboard/applications/schemas/${params.id}/fields`} className="ms-1">
-                    Manage Fields
-                  </Link> page.
-                </p>
+              <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+                <ul style={{ fontSize: '0.82rem', color: '#374151', paddingLeft: '1.1rem', lineHeight: 1.9, margin: 0 }}>
+                  <li>Changing schema name may affect existing applications</li>
+                  <li>Deactivating hides the schema from students</li>
+                  <li>Fee changes won&apos;t affect submitted applications</li>
+                </ul>
               </div>
             </div>
+            <div className={`${s.alert} ${s.alertInfo}`} style={{ margin: 0 }}>
+              <i className="fas fa-cogs" />
+              <span style={{ fontSize: '0.78rem' }}>To add or edit form fields, use the <Link href={`/admin/dashboard/applications/schemas/${params.id}/fields`} style={{ color: '#0891b2' }}>Manage Fields</Link> page.</span>
+            </div>
           </div>
+
         </div>
       </form>
     </div>

@@ -2,18 +2,17 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useApplications, usePayments } from '@/hooks/useRedux';
+import { useApplications } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/student-portal.module.css';
 
 export default function PayApplicationFeePage() {
   const params = useParams();
-  const router = useRouter();
-  const { data: session, status } = useSession();
-  
-  const { applications, loading: applicationsLoading, fetchApplications } = useApplications();
-  
+  const { status } = useSession();
+  const { applications } = useApplications();
+
   const [application, setApplication] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
@@ -23,19 +22,12 @@ export default function PayApplicationFeePage() {
   const fetchApplication = useCallback(async () => {
     try {
       setLoading(true);
-      
-      // Try to find application in Redux store first
-      const foundApplication = applications.find(app => app.id == params.id);
-      if (foundApplication) {
-        setApplication(foundApplication);
-        return;
-      }
-      
-      // If not found, fetch from API
-      const response = await apiService.get(API_ENDPOINTS.APPLICATIONS.GET_BY_ID(params.id));
-      setApplication(response?.data || response);
+      const found = applications.find((a) => a.id == params.id);
+      if (found) { setApplication(found); return; }
+      const res = await apiService.get(API_ENDPOINTS.APPLICATIONS.GET_BY_ID(params.id));
+      setApplication(res?.data || res);
     } catch (err) {
-      console.error('Error fetching application:', err);
+      console.error(err);
       setError('Failed to load application details');
     } finally {
       setLoading(false);
@@ -43,93 +35,39 @@ export default function PayApplicationFeePage() {
   }, [applications, params.id]);
 
   useEffect(() => {
-    if (status === 'authenticated' && params.id) {
-      fetchApplication();
-    }
+    if (status === 'authenticated' && params.id) fetchApplication();
   }, [status, params.id, fetchApplication]);
 
   const handlePayNow = async () => {
     setPaying(true);
     setError('');
-    
     try {
-      console.log('🔍 Application object:', application);
-      console.log('🔍 Application fee:', application?.application_fee);
-      console.log('🔍 Application email:', application?.applicant_email || application?.email);
-      
-      // Validate required fields
       if (!application?.application_fee || application.application_fee <= 0) {
-        setError('Application fee is not available or invalid');
-        return;
+        setError('Application fee is not available or invalid'); return;
       }
-      
       const applicantEmail = application?.applicant_email || application?.email;
-      if (!applicantEmail) {
-        setError('Application email is not available');
-        return;
-      }
-      
-      // Initialize payment with Paystack
+      if (!applicantEmail) { setError('Application email is not available'); return; }
+
       const paymentData = {
         applicant_id: params.id,
-        amount: application.application_fee, // Don't convert to kobo here - backend will do it
-        email: applicantEmail, // Use correct field name
+        amount: application.application_fee,
+        email: applicantEmail,
         reference: `APP${params.id}_${Date.now()}`,
-        // Optional Paystack split/subaccount routing for multi-school setups
-        paystack_subaccount:
-          application?.paystack_subaccount ||
-          application?.school_paystack_subaccount ||
-          application?.school_subaccount ||
-          application?.school?.paystack_subaccount ||
-          null,
-        paystack_split_code:
-          application?.paystack_split_code ||
-          application?.school_paystack_split_code ||
-          application?.school?.paystack_split_code ||
-          null
+        paystack_subaccount: application?.paystack_subaccount || application?.school_paystack_subaccount || application?.school?.paystack_subaccount || null,
+        paystack_split_code: application?.paystack_split_code || application?.school_paystack_split_code || application?.school?.paystack_split_code || null,
       };
-      
-      console.log('💳 Initializing payment:', paymentData);
-      
-      // Use direct API call to get the actual data (Redux returns action object)
+
       const response = await apiService.post(API_ENDPOINTS.PAYMENTS.INITIALIZE, paymentData);
-      console.log('✅ Payment initialized:', response);
-      
-      // apiService already returns response.data, so structure is: { success, message, data: { authorization_url, ... } }
       const authorizationUrl = response?.data?.authorization_url;
-      
-      console.log('🔍 Authorization URL:', authorizationUrl);
-      
-      // Redirect to Paystack payment page
+
       if (authorizationUrl) {
-        console.log('🚀 Redirecting to Paystack:', authorizationUrl);
-        
-        // Option 1: Full page redirect (current behavior)
-        // window.location.href = authorizationUrl;
-        
-        // Option 2: Open in new tab (alternative) - KEEPS USER IN DASHBOARD
         window.open(authorizationUrl, '_blank');
-        
-        // Show success message
-        setError(''); // Clear any previous errors
-        setSuccess('Payment page opened in new tab. Complete your payment and return to this page to verify.');
-        
-        // Clear success message after 10 seconds
-        setTimeout(() => {
-          setSuccess('');
-        }, 10000);
-        
-        // Option 3: Inline modal (requires Paystack Inline implementation)
-        // showPaystackModal(authorizationUrl);
-        
+        setSuccess('Payment page opened in a new tab. Complete your payment and return here to verify.');
+        setTimeout(() => setSuccess(''), 12000);
       } else {
-        console.log('❌ No authorization URL found in response:', response);
         setError('Failed to initialize payment. Please try again.');
-        setPaying(false);
       }
-      
     } catch (err) {
-      console.error('❌ Payment error:', err);
       setError(err?.message || err?.data?.message || 'Failed to initialize payment');
     } finally {
       setPaying(false);
@@ -137,254 +75,150 @@ export default function PayApplicationFeePage() {
   };
 
   if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="spinner-border text-success" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && !application) {
-    return (
-      <div className="container-fluid">
-        <div className="alert alert-danger">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-        </div>
-        <Link href="/admin/dashboard/student-portal/applications" className="btn btn-primary">
-          Back to Applications
-        </Link>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status"><span className="visually-hidden">Loading…</span></div></div>;
   }
 
   if (!application) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-warning">
-          Application not found
+      <div className={s.wrap}>
+        <div className={s.card}>
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon}><i className="fas fa-exclamation-triangle" style={{ color: '#d97706' }} /></div>
+            <h5 className={s.emptyTitle}>Application Not Found</h5>
+            <p className={s.emptySub}>We couldn't load this application's details.</p>
+            <Link href="/admin/dashboard/student-portal/applications" className={s.btnPrimary}><i className="fas fa-arrow-left" />Back to Applications</Link>
+          </div>
         </div>
-        <Link href="/admin/dashboard/student-portal/applications" className="btn btn-primary">
-          Back to Applications
-        </Link>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="mb-4">
-        <h2 className="h4 mb-1">
-          <i className="fas fa-credit-card text-success me-2"></i>
-          Payment
-        </h2>
-        <p className="text-muted mb-0">Complete your application fee payment</p>
+    <div className={s.wrap}>
+      {/* Header */}
+      <div className={s.pageHeader}>
+        <div>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#f0fdf4', color: '#059669' }}><i className="fas fa-credit-card" /></span>
+            Application Payment
+          </h1>
+          <p className={s.pageSub}>Complete your application fee payment securely</p>
+        </div>
+        <Link href="/admin/dashboard/student-portal/applications" className={s.btnOutline}><i className="fas fa-arrow-left" />Back</Link>
       </div>
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError('')}></button>
-        </div>
-      )}
-
       <div className="row justify-content-center">
-        <div className="col-lg-8">
-          {/* Payment Card */}
-          <div className="card border-0 shadow-lg">
-            <div className="card-header bg-gradient-success text-white text-center py-4">
-              <h3 className="mb-2">
-                <i className="fas fa-money-bill-wave me-2"></i>
-                Application Fee Payment
-              </h3>
-              <p className="mb-0 opacity-75">Secure payment powered by Paystack</p>
+        <div className="col-lg-7">
+          {/* Alerts */}
+          {error && (
+            <div className={`${s.alertDanger} mb-4`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <span><i className="fas fa-exclamation-triangle me-2" />{error}</span>
+              <button onClick={() => setError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#991b1b', lineHeight: 1 }}>×</button>
             </div>
-            
-            <div className="card-body p-4">
-              {/* Application Details */}
-              <div className="mb-4">
-                <h5 className="mb-3">Application Details</h5>
-                <div className="table-responsive">
-                  <table className="table table-borderless">
-                    <tbody>
-                      <tr>
-                        <td className="text-muted">Application ID:</td>
-                        <td><strong>{application.application_number || `APP${params.id}`}</strong></td>
-                      </tr>
-                      <tr>
-                        <td className="text-muted">Program:</td>
-                        <td><strong>{application.schema_display_name || application.schema_name}</strong></td>
-                      </tr>
-                      <tr>
-                        <td className="text-muted">Applicant:</td>
-                        <td>{application.applicant_name}</td>
-                      </tr>
-                      <tr>
-                        <td className="text-muted">Email:</td>
-                        <td>{application.applicant_email}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+          )}
+          {success && (
+            <div className={`${s.alertSuccess} mb-4`}>
+              <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}><i className="fas fa-check-circle me-2" />Payment Page Opened</div>
+              <div style={{ fontSize: '0.875rem' }}>{success}</div>
+            </div>
+          )}
+
+          {/* Payment card */}
+          <div className={s.card}>
+            <div className={s.navyBanner}>
+              <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}><i className="fas fa-money-bill-wave" /></div>
+              <h3 style={{ fontWeight: 700, margin: '0 0 0.3rem' }}>Application Fee Payment</h3>
+              <p style={{ margin: 0, opacity: 0.75, fontSize: '0.875rem' }}>Secure payment powered by Paystack</p>
+            </div>
+
+            <div style={{ padding: '2rem' }}>
+              {/* Application details */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '0.75rem' }}>Application Details</div>
+                {[
+                  ['Application ID', application.application_number || `APP${params.id}`],
+                  ['Program', application.schema_display_name || application.schema_name],
+                  ['Applicant', application.applicant_name],
+                  ['Email', application.applicant_email || application.email],
+                ].map(([label, value]) => value && (
+                  <div key={label} className={s.infoRow}>
+                    <span className={s.infoLabel}>{label}</span>
+                    <span className={s.infoValue}>{value}</span>
+                  </div>
+                ))}
               </div>
 
-              <hr />
-
-              {/* Payment Amount */}
-              <div className="text-center py-4 bg-light rounded mb-4">
-                <p className="text-muted mb-2">Amount to Pay</p>
-                <h1 className="display-4 text-success mb-0">
+              {/* Amount */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '1.5rem', textAlign: 'center', marginBottom: '1.5rem' }}>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.4rem' }}>Amount to Pay</div>
+                <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#059669', lineHeight: 1 }}>
                   ₦{parseFloat(application.application_fee || 0).toLocaleString()}
-                </h1>
-              </div>
-
-              {/* Payment Methods */}
-              <div className="mb-4">
-                <h6 className="mb-3">
-                  <i className="fas fa-check-circle text-success me-2"></i>
-                  Accepted Payment Methods
-                </h6>
-                <div className="row text-center">
-                  <div className="col-4">
-                    <div className="p-3 border rounded">
-                      <i className="fas fa-credit-card text-primary fs-3 mb-2"></i>
-                      <p className="small mb-0">Debit Card</p>
-                    </div>
-                  </div>
-                  <div className="col-4">
-                    <div className="p-3 border rounded">
-                      <i className="fas fa-university text-success fs-3 mb-2"></i>
-                      <p className="small mb-0">Bank Transfer</p>
-                    </div>
-                  </div>
-                  <div className="col-4">
-                    <div className="p-3 border rounded">
-                      <i className="fas fa-mobile-alt text-warning fs-3 mb-2"></i>
-                      <p className="small mb-0">USSD</p>
-                    </div>
-                  </div>
                 </div>
               </div>
 
-              {/* Success Message */}
-              {success && (
-                <div className="alert alert-success mb-4">
-                  <div className="d-flex">
-                    <i className="fas fa-check-circle fs-4 me-3"></i>
-                    <div>
-                      <h6 className="mb-2">Payment Page Opened</h6>
-                      <p className="small mb-0">{success}</p>
-                    </div>
-                  </div>
+              {/* Payment methods */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '0.75rem', fontSize: '0.875rem' }}>
+                  <i className="fas fa-check-circle me-2" style={{ color: '#059669' }} />Accepted Payment Methods
                 </div>
-              )}
-
-              {/* Error Message */}
-              {error && (
-                <div className="alert alert-danger mb-4">
-                  <div className="d-flex">
-                    <i className="fas fa-exclamation-triangle fs-4 me-3"></i>
-                    <div>
-                      <h6 className="mb-2">Payment Error</h6>
-                      <p className="small mb-0">{error}</p>
+                <div className="row g-2">
+                  {[
+                    { icon: 'fas fa-credit-card', label: 'Debit Card', color: '#2563eb' },
+                    { icon: 'fas fa-university',  label: 'Bank Transfer', color: '#059669' },
+                    { icon: 'fas fa-mobile-alt',  label: 'USSD', color: '#d97706' },
+                  ].map((m) => (
+                    <div key={m.label} className="col-4">
+                      <div style={{ border: '1px solid #e5eaf2', borderRadius: '10px', padding: '0.75rem', textAlign: 'center', background: '#fafbfc' }}>
+                        <i className={m.icon} style={{ color: m.color, fontSize: '1.4rem', display: 'block', marginBottom: '0.3rem' }} />
+                        <div style={{ fontSize: '0.75rem', fontWeight: 500, color: '#374151' }}>{m.label}</div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Security Notice */}
-              <div className="alert alert-info mb-4">
-                <div className="d-flex">
-                  <i className="fas fa-shield-alt fs-4 me-3"></i>
-                  <div>
-                    <h6 className="mb-2">Secure Payment</h6>
-                    <p className="small mb-0">
-                      Your payment is processed securely by Paystack. We do not store your card details.
-                      All transactions are encrypted and PCI DSS compliant.
-                    </p>
-                  </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="d-grid gap-2">
-                <button
-                  className="btn btn-success btn-lg"
-                  onClick={handlePayNow}
-                  disabled={paying}
-                >
-                  {paying ? (
-                    <>
-                      <i className="fas fa-spinner fa-spin me-2"></i>
-                      Opening Payment Page...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-lock me-2"></i>
-                      Pay ₦{parseFloat(application.application_fee || 0).toLocaleString()} Now
-                    </>
-                  )}
-                </button>
-                
-                <Link
-                  href="/admin/dashboard/student-portal/applications"
-                  className="btn btn-outline-secondary"
-                >
-                  <i className="fas fa-arrow-left me-2"></i>
-                  Back to Applications
-                </Link>
+              {/* Security notice */}
+              <div className={`${s.alertInfo} mb-4`} style={{ fontSize: '0.8rem' }}>
+                <i className="fas fa-shield-alt me-2" />
+                Your payment is processed securely by Paystack. We do not store your card details. All transactions are encrypted and PCI DSS compliant.
               </div>
 
-              {/* Help Text */}
-              <div className="text-center mt-4">
-                <small className="text-muted">
-                  <i className="fas fa-question-circle me-1"></i>
-                  Having trouble? <Link href="/admin/dashboard/student-portal/help/contact">Contact Support</Link>
-                </small>
+              {/* CTA */}
+              <button
+                onClick={handlePayNow}
+                disabled={paying}
+                className={s.btnGreen}
+                style={{ width: '100%', justifyContent: 'center', padding: '0.85rem', fontSize: '1rem', borderRadius: '10px' }}
+              >
+                {paying
+                  ? <><span className="spinner-border spinner-border-sm" />Opening Payment Page…</>
+                  : <><i className="fas fa-lock" />Pay ₦{parseFloat(application.application_fee || 0).toLocaleString()} Now</>
+                }
+              </button>
+
+              <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.8rem', color: '#9ca3af' }}>
+                <i className="fas fa-question-circle me-1" />
+                Having trouble? <Link href="/admin/dashboard/student-portal/help" style={{ color: '#2563eb' }}>Contact Support</Link>
               </div>
             </div>
           </div>
 
-          {/* Payment Instructions */}
-          <div className="card border-0 shadow-sm mt-4">
-            <div className="card-header bg-light">
-              <h6 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Payment Instructions
-              </h6>
-            </div>
-            <div className="card-body">
-              <ol className="small mb-0">
-                <li className="mb-2">Click &quot;Pay Now&quot; button above</li>
-                <li className="mb-2">You&apos;ll be redirected to Paystack secure payment page</li>
-                <li className="mb-2">Choose your payment method (Card, Bank Transfer, or USSD)</li>
-                <li className="mb-2">Complete the payment</li>
-                <li className="mb-2">You&apos;ll be redirected back automatically</li>
-                <li className="mb-0">Payment confirmation will be sent to your email</li>
+          {/* Instructions */}
+          <div className={s.card} style={{ marginTop: '1.25rem' }}>
+            <div className={s.cardHeader}><span className={s.cardTitle}><i className="fas fa-info-circle me-2" style={{ color: '#2563eb' }} />Payment Instructions</span></div>
+            <div className={s.cardBody}>
+              <ol style={{ paddingLeft: '1.25rem', margin: 0, fontSize: '0.875rem', color: '#374151', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <li>Click the <strong>Pay Now</strong> button above</li>
+                <li>A Paystack payment page will open in a new tab</li>
+                <li>Choose your payment method (Card, Bank Transfer, or USSD)</li>
+                <li>Complete the payment on the Paystack page</li>
+                <li>Return to this tab — your application status will update automatically</li>
+                <li>A payment confirmation will be sent to your email</li>
               </ol>
             </div>
           </div>
         </div>
       </div>
-
-      <style jsx>{`
-        .bg-gradient-success {
-          background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
-        }
-
-        .hover-card {
-          transition: transform 0.3s;
-        }
-
-        .hover-card:hover {
-          transform: translateY(-2px);
-        }
-      `}</style>
     </div>
   );
 }

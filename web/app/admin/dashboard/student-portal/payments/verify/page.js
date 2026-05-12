@@ -4,18 +4,16 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { usePayments } from '@/hooks/useRedux';
-import { useApplications } from '@/hooks/useRedux';
-import { API_ENDPOINTS, apiService } from '@/services/api';
+import { usePayments, useApplications } from '@/hooks/useRedux';
+import s from '@/styles/student-portal.module.css';
 
 export default function VerifyPaymentPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { data: session, status } = useSession();
-  
+  const { status } = useSession();
   const { verifyPayment } = usePayments();
   const { fetchApplications } = useApplications();
-  
+
   const [verifying, setVerifying] = useState(true);
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [error, setError] = useState('');
@@ -23,33 +21,20 @@ export default function VerifyPaymentPage() {
 
   const reference = searchParams.get('reference');
 
-  const handleVerifyPayment = useCallback(async () => {
+  const handleVerify = useCallback(async () => {
     try {
       setVerifying(true);
-      
-      // Use Redux action instead of direct API call
       const response = await verifyPayment(reference);
-      
       setPaymentStatus(response);
-      
-      // Extract application ID from response for "Try Again" functionality
       const applicantId = response?.payload?.applicant_id || response?.applicant_id;
-      if (applicantId) {
-        setApplicationId(applicantId);
-      }
-      
-      // Refresh applications data if payment was successful
+      if (applicantId) setApplicationId(applicantId);
       const isSuccess = response?.payload?.payment_status === 'success' || response?.payment_status === 'success';
       if (isSuccess) {
-        await fetchApplications();
-        // Redirect to applications page after a short delay
-        setTimeout(() => {
-          router.push('/admin/dashboard/student-portal/applications?payment_success=true');
-        }, 2000);
+        fetchApplications();
+        setTimeout(() => { router.push('/admin/dashboard/student-portal/applications?payment_success=true'); }, 2500);
       }
-      
     } catch (err) {
-      console.error('❌ Payment verification error:', err);
+      console.error(err);
       setError('Failed to verify payment');
     } finally {
       setVerifying(false);
@@ -57,25 +42,19 @@ export default function VerifyPaymentPage() {
   }, [verifyPayment, reference, fetchApplications, router]);
 
   useEffect(() => {
-    if (status === 'authenticated' && reference) {
-      handleVerifyPayment();
-    }
-  }, [status, reference, handleVerifyPayment]);
+    if (status === 'authenticated' && reference) handleVerify();
+  }, [status, reference, handleVerify]);
 
   if (verifying) {
     return (
-      <div className="container-fluid">
-        <div className="row justify-content-center">
-          <div className="col-md-6">
-            <div className="card border-0 shadow-lg mt-5">
-              <div className="card-body text-center py-5">
-                <div className="spinner-border text-success mb-3" style={{ width: '4rem', height: '4rem' }}>
-                  <span className="visually-hidden">Verifying...</span>
-                </div>
-                <h4 className="mb-2">Verifying Payment...</h4>
-                <p className="text-muted">Please wait while we confirm your payment</p>
-              </div>
+      <div className={s.wrap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
+        <div className={s.centeredCard} style={{ width: '100%' }}>
+          <div style={{ padding: '3rem', textAlign: 'center' }}>
+            <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', fontSize: '1.8rem', color: '#2563eb' }}>
+              <i className="fas fa-sync fa-spin" />
             </div>
+            <h4 style={{ fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Verifying Payment…</h4>
+            <p style={{ color: '#6b7280', margin: 0 }}>Please wait while we confirm your payment with Paystack</p>
           </div>
         </div>
       </div>
@@ -84,25 +63,18 @@ export default function VerifyPaymentPage() {
 
   if (error || !paymentStatus) {
     return (
-      <div className="container-fluid">
-        <div className="row justify-content-center">
-          <div className="col-md-6">
-            <div className="card border-0 shadow-lg mt-5">
-              <div className="card-body text-center py-5">
-                <i className="fas fa-times-circle text-danger mb-3" style={{ fontSize: '5rem' }}></i>
-                <h4 className="mb-2 text-danger">Payment Verification Failed</h4>
-                <p className="text-muted mb-4">
-                  {error || 'Unable to verify your payment. Please contact support.'}
-                </p>
-                <div className="d-flex gap-2 justify-content-center">
-                  <Link href="/admin/dashboard/student-portal/payments" className="btn btn-primary">
-                    View Payments
-                  </Link>
-                  <Link href="/admin/dashboard/student-portal/help/contact" className="btn btn-outline-secondary">
-                    Contact Support
-                  </Link>
-                </div>
-              </div>
+      <div className={s.wrap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
+        <div className={s.centeredCard} style={{ width: '100%' }}>
+          <div className={s.failBanner}>
+            <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}><i className="fas fa-times-circle" /></div>
+            <h3 style={{ fontWeight: 700, margin: '0 0 0.4rem' }}>Verification Failed</h3>
+            <p style={{ margin: 0, opacity: 0.85 }}>Unable to verify your payment</p>
+          </div>
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>{error || 'Please contact support if the problem persists.'}</p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+              <Link href="/admin/dashboard/student-portal/payments" className={s.btnPrimary}><i className="fas fa-credit-card" />View Payments</Link>
+              <Link href="/admin/dashboard/student-portal/help" className={s.btnOutline}><i className="fas fa-headset" />Support</Link>
             </div>
           </div>
         </div>
@@ -111,139 +83,86 @@ export default function VerifyPaymentPage() {
   }
 
   const isSuccess = paymentStatus?.payload?.payment_status === 'success' || paymentStatus?.payment_status === 'success';
-  
+  const amountPaid = parseFloat(paymentStatus?.payload?.amount_paid || paymentStatus?.amount_paid || 0);
+  const txRef = paymentStatus?.payload?.transaction?.transaction_reference || reference;
+  const paidAt = paymentStatus?.payload?.paid_at;
+
   return (
-    <div className="container-fluid">
-      <div className="row justify-content-center">
-        <div className="col-md-8">
-          <div className="card border-0 shadow-lg mt-5">
-            {isSuccess ? (
-              <>
-                {/* Success */}
-                <div className="card-header bg-gradient-success text-white text-center py-4">
-                  <i className="fas fa-check-circle mb-3" style={{ fontSize: '5rem' }}></i>
-                  <h3 className="mb-2">Payment Successful!</h3>
-                  <p className="mb-0 opacity-75">Your application fee has been received</p>
+    <div className={s.wrap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
+      <div className={s.centeredCard} style={{ width: '100%' }}>
+        {isSuccess ? (
+          <>
+            <div className={s.successBanner}>
+              <div style={{ fontSize: '3.5rem', marginBottom: '0.75rem' }}><i className="fas fa-check-circle" /></div>
+              <h3 style={{ fontWeight: 700, margin: '0 0 0.4rem' }}>Payment Successful!</h3>
+              <p style={{ margin: 0, opacity: 0.85 }}>Your application fee has been received</p>
+            </div>
+            <div style={{ padding: '2rem' }}>
+              {/* Details grid */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+                <div style={{ fontWeight: 600, color: '#065f46', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <i className="fas fa-receipt" />Payment Details
                 </div>
-                
-                <div className="card-body p-4">
-                  {/* Payment Details */}
-                  <div className="alert alert-success mb-4">
-                    <h6 className="mb-3">
-                      <i className="fas fa-receipt me-2"></i>
-                      Payment Details
-                    </h6>
-                    <div className="row">
-                      <div className="col-md-6 mb-2">
-                        <small className="text-muted d-block">Amount Paid:</small>
-                        <strong className="fs-5">₦{parseFloat(paymentStatus?.payload?.amount_paid || paymentStatus?.amount_paid || 0).toLocaleString()}</strong>
-                      </div>
-                      <div className="col-md-6 mb-2">
-                        <small className="text-muted d-block">Reference:</small>
-                        <code>{paymentStatus?.payload?.transaction?.transaction_reference || reference}</code>
-                      </div>
-                      <div className="col-md-6 mb-2">
-                        <small className="text-muted d-block">Payment Date:</small>
-                        <span>{paymentStatus?.payload?.paid_at ? new Date(paymentStatus.payload.paid_at).toLocaleString() : new Date().toLocaleString()}</span>
-                      </div>
-                      <div className="col-md-6 mb-2">
-                        <small className="text-muted d-block">Status:</small>
-                        <span className="badge bg-success">Confirmed</span>
-                      </div>
+                <div className="row g-2">
+                  {[
+                    ['Amount Paid', <strong style={{ fontSize: '1.1rem' }}>₦{amountPaid.toLocaleString()}</strong>],
+                    ['Reference', <code style={{ fontSize: '0.8rem', color: '#2563eb' }}>{txRef}</code>],
+                    ['Payment Date', paidAt ? new Date(paidAt).toLocaleString() : new Date().toLocaleString()],
+                    ['Status', <span className={`${s.badge} ${s.badgeApproved}`}><i className="fas fa-check-circle" />Confirmed</span>],
+                  ].map(([label, value]) => (
+                    <div key={label} className="col-6">
+                      <div style={{ fontSize: '0.72rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '0.2rem' }}>{label}</div>
+                      <div>{value}</div>
                     </div>
-                  </div>
+                  ))}
+                </div>
+              </div>
 
-                  {/* Next Steps */}
-                  <div className="alert alert-info mb-4">
-                    <h6 className="mb-2">
-                      <i className="fas fa-arrow-right me-2"></i>
-                      What&apos;s Next?
-                    </h6>
-                    <ul className="small mb-0">
-                      <li>Your application is now under review</li>
-                      <li>You&apos;ll receive an email notification once reviewed</li>
-                      <li>Check your application status regularly</li>
-                      <li>Exam date will be assigned if approved</li>
-                    </ul>
-                  </div>
+              {/* Next steps */}
+              <div className={`${s.alertInfo} mb-4`}>
+                <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}><i className="fas fa-arrow-right me-2" />What's Next?</div>
+                <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.875rem' }}>
+                  <li>Your application is now under review</li>
+                  <li>You'll receive an email once it's reviewed</li>
+                  <li>An exam date will be assigned if approved</li>
+                </ul>
+              </div>
 
-                  {/* Action Buttons */}
-                  <div className="d-grid gap-2">
-                    <Link
-                      href={`/admin/dashboard/student-portal/payments/receipt?reference=${reference}`}
-                      className="btn btn-success btn-lg"
-                    >
-                      <i className="fas fa-receipt me-2"></i>
-                      View Receipt
-                    </Link>
-                    
-                    <Link
-                      href="/admin/dashboard/student-portal/applications?payment_success=true"
-                      className="btn btn-primary"
-                    >
-                      <i className="fas fa-list me-2"></i>
-                      View My Applications
-                    </Link>
-                    
-                    <Link
-                      href="/admin/dashboard/student-portal"
-                      className="btn btn-outline-secondary"
-                    >
-                      <i className="fas fa-home me-2"></i>
-                      Go to Dashboard
-                    </Link>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Failed */}
-                <div className="card-header bg-danger text-white text-center py-4">
-                  <i className="fas fa-times-circle mb-3" style={{ fontSize: '5rem' }}></i>
-                  <h3 className="mb-2">Payment Failed</h3>
-                  <p className="mb-0">Your payment could not be processed</p>
-                </div>
-                
-                <div className="card-body p-4 text-center">
-                  <p className="text-muted mb-4">
-                    The payment was not successful. Please try again or contact support if the problem persists.
-                  </p>
-                  
-                  <div className="d-grid gap-2">
-                    <button
-                      className="btn btn-success btn-lg"
-                      onClick={() => {
-                        if (applicationId) {
-                          router.push(`/admin/dashboard/student-portal/payments/pay/${applicationId}`);
-                        } else {
-                          router.push('/admin/dashboard/student-portal/applications');
-                        }
-                      }}
-                    >
-                      <i className="fas fa-redo me-2"></i>
-                      Try Again
-                    </button>
-                    
-                    <Link
-                      href="/admin/dashboard/student-portal/help/contact"
-                      className="btn btn-outline-secondary"
-                    >
-                      <i className="fas fa-headset me-2"></i>
-                      Contact Support
-                    </Link>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <Link href={`/admin/dashboard/student-portal/payments/receipt?reference=${reference}`} className={s.btnGreen} style={{ justifyContent: 'center' }}>
+                  <i className="fas fa-receipt" />View Receipt
+                </Link>
+                <Link href="/admin/dashboard/student-portal/applications?payment_success=true" className={s.btnPrimary} style={{ justifyContent: 'center' }}>
+                  <i className="fas fa-list" />My Applications
+                </Link>
+                <Link href="/admin/dashboard/student-portal" className={s.btnOutline} style={{ justifyContent: 'center' }}>
+                  <i className="fas fa-home" />Dashboard
+                </Link>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={s.failBanner}>
+              <div style={{ fontSize: '3.5rem', marginBottom: '0.75rem' }}><i className="fas fa-times-circle" /></div>
+              <h3 style={{ fontWeight: 700, margin: '0 0 0.4rem' }}>Payment Failed</h3>
+              <p style={{ margin: 0, opacity: 0.85 }}>Your payment could not be processed</p>
+            </div>
+            <div style={{ padding: '2rem', textAlign: 'center' }}>
+              <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>The payment was not successful. Please try again or contact support if the issue persists.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <button className={s.btnGreen} style={{ justifyContent: 'center' }}
+                  onClick={() => router.push(applicationId ? `/admin/dashboard/student-portal/payments/pay/${applicationId}` : '/admin/dashboard/student-portal/applications')}>
+                  <i className="fas fa-redo" />Try Again
+                </button>
+                <Link href="/admin/dashboard/student-portal/help" className={s.btnOutline} style={{ justifyContent: 'center' }}>
+                  <i className="fas fa-headset" />Contact Support
+                </Link>
+              </div>
+            </div>
+          </>
+        )}
       </div>
-
-      <style jsx>{`
-        .bg-gradient-success {
-          background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
-        }
-      `}</style>
     </div>
   );
 }

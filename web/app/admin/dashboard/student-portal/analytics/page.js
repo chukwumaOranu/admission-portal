@@ -1,242 +1,141 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications, usePayments, useExams } from '@/hooks/useRedux';
+import s from '@/styles/student-portal.module.css';
 
-function StatCard({ title, value, icon, color, subtitle }) {
-  return (
-    <div className="col-md-3 mb-4">
-      <div className="card border-0 shadow-sm h-100">
-        <div className="card-body">
-          <div className="d-flex justify-content-between align-items-start">
-            <div>
-              <p className="text-muted small text-uppercase fw-medium mb-1">{title}</p>
-              <h3 className="fw-bold text-dark mb-2">{value.toLocaleString()}</h3>
-              {subtitle && <small className="text-muted">{subtitle}</small>}
-            </div>
-            <div className={`text-${color} fs-1 opacity-75`}>
-              <i className={icon}></i>
+const StatGroup = ({ title, icon, color, bg, stats }) => (
+  <div className={s.card} style={{ marginBottom: '1.25rem' }}>
+    <div className={s.cardHeader}>
+      <span className={s.cardTitle}>
+        <span style={{ width: 28, height: 28, borderRadius: 6, background: bg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color }}>
+          <i className={icon} style={{ fontSize: '0.75rem' }} />
+        </span>
+        {title}
+      </span>
+    </div>
+    <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
+        {stats.map(({ label, value, sub, icon: ic, accent }) => (
+          <div key={label} className={s.statCard} style={{ '--accent': accent || color }}>
+            <div className={s.statLeft}>
+              <div className={s.statIcon} style={{ background: `${accent || color}18`, color: accent || color }}>
+                <i className={ic} />
+              </div>
+              <div>
+                <div className={s.statLabel}>{label}</div>
+                <div className={s.statNumber} style={{ color: accent || color }}>{value.toLocaleString()}</div>
+                <div className={s.statSub}>{sub}</div>
+              </div>
             </div>
           </div>
-        </div>
+        ))}
       </div>
     </div>
-  );
-}
+  </div>
+);
 
 export default function StudentAnalytics() {
-  const { status } = useSession();
-  const { hasPermission, loading: permissionsLoading } = usePermissions();
-  
-  // Fetch real data from Redux stores
+  const { data: session, status } = useSession();
+  const { hasPermission, loading: permLoading } = usePermissions();
   const { applications, loading: appsLoading, fetchMyApplications } = useApplications();
   const { payments, loading: paymentsLoading, fetchPayments } = usePayments();
   const { entryDates, loading: examsLoading, fetchEntryDates } = useExams();
+  const loadedRef = useRef(false);
 
-  const [isLoading, setIsLoading] = useState(true);
-
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchMyApplications(); // Fetch only current user's applications
-      fetchPayments();
-      fetchEntryDates();
-      
-      // Set loading to false after a brief delay for data to be fetched
-      setTimeout(() => setIsLoading(false), 500);
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true;
+      fetchMyApplications(); fetchPayments(); fetchEntryDates();
     }
-  }, [status, fetchMyApplications, fetchPayments, fetchEntryDates]);
+  }, [status, session?.user?.id, fetchMyApplications, fetchPayments, fetchEntryDates]);
 
-  // Calculate analytics from real data - filtered for current student
-  const analytics = {
-    applications: {
-      total: applications.length,
-      pending: applications.filter(a => a.status === 'pending' || a.status === 'submitted').length,
-      approved: applications.filter(a => a.status === 'approved' || a.status === 'accepted').length,
-      rejected: applications.filter(a => a.status === 'rejected' || a.status === 'declined').length
-    },
-    payments: {
-      total: payments.length,
-      successful: payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').length,
-      failed: payments.filter(p => p.payment_status === 'failed').length,
-      pending: payments.filter(p => p.payment_status === 'pending').length
-    },
-    exams: {
-      totalDates: entryDates.length,
-      upcoming: entryDates.filter(e => new Date(e.exam_date) > new Date()).length,
-      completed: entryDates.filter(e => new Date(e.exam_date) < new Date()).length
-    }
-  };
+  const loading = appsLoading || paymentsLoading || examsLoading || permLoading || status === 'loading';
 
-  const loading = isLoading || appsLoading || paymentsLoading || examsLoading || permissionsLoading || status === 'loading';
-
-  // Check permissions
   if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   if (!hasPermission('student_analytics.read')) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-danger">
-          <h4>Access Denied</h4>
-          <p>You don&apos;t have permission to view analytics.</p>
-        </div>
+      <div className={s.wrap}>
+        <div className={s.alertDanger}><i className="fas fa-lock" style={{ marginRight: 8 }} />You don&apos;t have permission to view analytics.</div>
       </div>
     );
   }
 
+  const appStats = {
+    total:    applications.length,
+    pending:  applications.filter(a => a.status === 'pending' || a.status === 'submitted').length,
+    approved: applications.filter(a => a.status === 'approved' || a.status === 'accepted').length,
+    rejected: applications.filter(a => a.status === 'rejected' || a.status === 'declined').length,
+  };
+  const payStats = {
+    total:      payments.length,
+    successful: payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').length,
+    failed:     payments.filter(p => p.payment_status === 'failed').length,
+    pending:    payments.filter(p => p.payment_status === 'pending').length,
+  };
+  const examStats = {
+    total:    entryDates.length,
+    upcoming: entryDates.filter(e => new Date(e.exam_date) > new Date()).length,
+    done:     entryDates.filter(e => new Date(e.exam_date) < new Date()).length,
+  };
+
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="mb-4">
-        <h2 className="h4 mb-1">
-          <i className="fas fa-chart-line text-primary me-2"></i>
-          My Analytics
-        </h2>
-        <p className="text-muted mb-0">View your application and payment analytics</p>
-      </div>
+    <div className={s.wrap}>
 
-      {/* Applications Analytics */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-file-alt me-2"></i>
-                Application Analytics
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <StatCard
-                  title="Total Applications"
-                  value={analytics.applications.total}
-                  icon="fas fa-file-alt"
-                  color="info"
-                  subtitle="All time"
-                />
-                <StatCard
-                  title="Pending Review"
-                  value={analytics.applications.pending}
-                  icon="fas fa-clock"
-                  color="warning"
-                  subtitle="Awaiting review"
-                />
-                <StatCard
-                  title="Approved"
-                  value={analytics.applications.approved}
-                  icon="fas fa-check-circle"
-                  color="success"
-                  subtitle="Successfully approved"
-                />
-                <StatCard
-                  title="Rejected"
-                  value={analytics.applications.rejected}
-                  icon="fas fa-times-circle"
-                  color="danger"
-                  subtitle="Not approved"
-                />
-              </div>
-            </div>
-          </div>
+      <div className={s.pageHeader}>
+        <div>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-chart-line" /></span>
+            My Analytics
+          </h1>
+          <p className={s.pageSub}>Overview of your applications, payments and exams</p>
         </div>
       </div>
 
-      {/* Payment Analytics */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-success text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-credit-card me-2"></i>
-                Payment Analytics
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <StatCard
-                  title="Total Payments"
-                  value={analytics.payments.total}
-                  icon="fas fa-credit-card"
-                  color="success"
-                  subtitle="All transactions"
-                />
-                <StatCard
-                  title="Successful"
-                  value={analytics.payments.successful}
-                  icon="fas fa-check-double"
-                  color="success"
-                  subtitle="Completed payments"
-                />
-                <StatCard
-                  title="Failed"
-                  value={analytics.payments.failed}
-                  icon="fas fa-times"
-                  color="danger"
-                  subtitle="Failed transactions"
-                />
-                <StatCard
-                  title="Pending"
-                  value={analytics.payments.pending}
-                  icon="fas fa-hourglass-half"
-                  color="warning"
-                  subtitle="In progress"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <StatGroup
+        title="Applications"
+        icon="fas fa-file-alt"
+        color="#2563eb"
+        bg="#eff6ff"
+        stats={[
+          { label: 'Total',    value: appStats.total,    sub: 'All time',        icon: 'fas fa-file-alt',    accent: '#2563eb' },
+          { label: 'Pending',  value: appStats.pending,  sub: 'Awaiting review', icon: 'fas fa-clock',       accent: '#d97706' },
+          { label: 'Approved', value: appStats.approved, sub: 'Accepted',        icon: 'fas fa-check-circle',accent: '#059669' },
+          { label: 'Rejected', value: appStats.rejected, sub: 'Not approved',    icon: 'fas fa-times-circle',accent: '#dc2626' },
+        ]}
+      />
 
-      {/* Exam Analytics */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-warning text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-clipboard-check me-2"></i>
-                Exam Analytics
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-4">
-                  <StatCard
-                    title="Total Dates"
-                    value={analytics.exams.totalDates}
-                    icon="fas fa-calendar"
-                    color="warning"
-                  />
-                </div>
-                <div className="col-4">
-                  <StatCard
-                    title="Upcoming"
-                    value={analytics.exams.upcoming}
-                    icon="fas fa-clock"
-                    color="info"
-                  />
-                </div>
-                <div className="col-4">
-                  <StatCard
-                    title="Completed"
-                    value={analytics.exams.completed}
-                    icon="fas fa-check"
-                    color="success"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <StatGroup
+        title="Payments"
+        icon="fas fa-credit-card"
+        color="#059669"
+        bg="#d1fae5"
+        stats={[
+          { label: 'Total',      value: payStats.total,      sub: 'All transactions',   icon: 'fas fa-credit-card',   accent: '#059669' },
+          { label: 'Successful', value: payStats.successful, sub: 'Completed',          icon: 'fas fa-check-double',  accent: '#059669' },
+          { label: 'Failed',     value: payStats.failed,     sub: 'Failed transactions',icon: 'fas fa-times',         accent: '#dc2626' },
+          { label: 'Pending',    value: payStats.pending,    sub: 'In progress',        icon: 'fas fa-hourglass-half',accent: '#d97706' },
+        ]}
+      />
+
+      <StatGroup
+        title="Exams"
+        icon="fas fa-clipboard-check"
+        color="#d97706"
+        bg="#fef3c7"
+        stats={[
+          { label: 'Total Dates', value: examStats.total,    sub: 'All scheduled',icon: 'fas fa-calendar',         accent: '#d97706' },
+          { label: 'Upcoming',    value: examStats.upcoming, sub: 'Not yet taken', icon: 'fas fa-clock',           accent: '#0891b2' },
+          { label: 'Completed',   value: examStats.done,     sub: 'Past exams',   icon: 'fas fa-check-circle',    accent: '#059669' },
+        ]}
+      />
+
     </div>
   );
 }

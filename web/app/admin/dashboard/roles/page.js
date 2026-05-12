@@ -1,168 +1,138 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useRoles } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
+
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
 export default function RolesPage() {
-  const { status } = useSession();
-  
-  // ✅ Redux - Simple!
+  const { data: session, status } = useSession();
+  const { hasPermission, loading: permLoading } = usePermissions();
   const { roles, loading, error, fetchRoles, deleteRole } = useRoles();
+  const loadedRef = useRef(false);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchRoles();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchRoles();
     }
-  }, [status, fetchRoles]);
+  }, [status, session?.user?.id, fetchRoles]);
 
-  const handleDelete = async (roleId) => {
-    if (!window.confirm('Are you sure you want to delete this role?')) {
-      return;
-    }
-    
-    try {
-      await deleteRole(roleId);
-      alert('Role deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting role:', err);
-      alert('Failed to delete role');
-    }
+  const handleDelete = (id) => {
+    if (!window.confirm('Delete this role? This may affect users assigned to it.')) return;
+    deleteRole(id);
   };
 
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
+  if (status === 'loading' || permLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-user-shield text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-user-shield" /></span>
             Roles
-          </h2>
-          <p className="text-muted mb-0">Manage user roles and permissions</p>
+          </h1>
+          <p className={s.pageSub}>Define roles to group permissions and control user access</p>
         </div>
-        <Link href="/admin/dashboard/roles/add" className="btn btn-primary-custom">
-          <i className="fas fa-plus me-2"></i>
-          Add Role
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/rolePermissions" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-link" />Role Permissions
+          </Link>
+          {hasPermission('role.create') && (
+            <Link href="/admin/dashboard/roles/add" className={`${s.btn} ${s.btnPrimary}`}>
+              <i className="fas fa-plus" />Add Role
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
 
-      {/* Stats Card */}
-      <div className="row mb-4">
-        <div className="col-md-3">
-          <div className="stats-card">
-            <div className="d-flex justify-content-between">
-              <div>
-                <p className="stats-label">Total Roles</p>
-                <h3 className="stats-number">{roles?.length || 0}</h3>
-              </div>
-              <i className="fas fa-user-shield text-primary fs-1 opacity-75"></i>
+      {/* Stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total Roles',  value: roles?.length || 0,          icon: 'fas fa-user-shield', color: '#d97706' },
+          { label: 'Active',       value: roles?.length || 0,           icon: 'fas fa-check-circle',color: '#059669' },
+          { label: 'Permissions',  value: '—',                          icon: 'fas fa-key',         color: '#7c3aed' },
+          { label: 'Users Assigned',value: '—',                         icon: 'fas fa-users',       color: '#2563eb' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
             </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Roles List */}
+      {/* Roles grid */}
       {loading ? (
-        <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
+        <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+      ) : !roles?.length ? (
+        <div className={s.card}>
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-user-shield" /></div>
+            <div className={s.emptyTitle}>No Roles Yet</div>
+            <p className={s.emptySub}>Create your first role to start managing user access.</p>
+            {hasPermission('role.create') && (
+              <Link href="/admin/dashboard/roles/add" className={`${s.btn} ${s.btnPrimary}`}><i className="fas fa-plus" />Add Role</Link>
+            )}
           </div>
-          <p className="mt-3 text-muted">Loading roles...</p>
         </div>
       ) : (
-        <div className="row">
-          {roles?.map((role) => (
-            <div key={role.id} className="col-md-6 col-lg-4 mb-3">
-              <div className="card card-custom h-100">
-                <div className="card-body">
-                  <div className="d-flex justify-content-between align-items-start mb-2">
-                    <h6 className="card-title mb-0">{role.name}</h6>
-                    <span className="badge bg-success">Active</span>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <div className="d-flex align-items-center mb-2">
-                      <i className="fas fa-info-circle text-info me-2"></i>
-                      <span className="small">{role.description || 'No description'}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="small text-muted mb-3">
-                    <i className="fas fa-calendar me-1"></i>
-                    Created: {new Date(role.created_at).toLocaleDateString()}
-                  </div>
-                  
-                  <div className="d-flex gap-2">
-                    <Link 
-                      href={`/admin/dashboard/roles/edit/${role.id}`}
-                      className="btn btn-outline-primary btn-sm"
-                    >
-                      <i className="fas fa-edit me-1"></i> Edit
-                    </Link>
-                    <Link 
-                      href={`/admin/dashboard/roles/permissions/${role.id}`}
-                      className="btn btn-outline-info btn-sm"
-                    >
-                      <i className="fas fa-key me-1"></i> Permissions
-                    </Link>
-                    <button 
-                      className="btn btn-outline-danger btn-sm"
-                      onClick={() => handleDelete(role.id)}
-                    >
-                      <i className="fas fa-trash me-1"></i> Delete
-                    </button>
-                  </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem' }}>
+          {roles.map(role => (
+            <div key={role.id} className={s.card} style={{ marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
+              {/* Card header */}
+              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: 32, height: 32, borderRadius: 8, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706', flexShrink: 0 }}>
+                    <i className="fas fa-shield-alt" style={{ fontSize: '0.78rem' }} />
+                  </span>
+                  <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e3a5f' }}>{role.name}</span>
                 </div>
+                <span className={`${s.badge} ${s.badgeActive}`}>Active</span>
+              </div>
+
+              {/* Card body */}
+              <div style={{ padding: '0.875rem 1.25rem', flex: 1 }}>
+                <p style={{ fontSize: '0.875rem', color: '#6b7280', margin: '0 0 0.5rem', lineHeight: 1.5, minHeight: 40 }}>
+                  {role.description || <span style={{ color: '#d1d5db', fontStyle: 'italic' }}>No description</span>}
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: '#9ca3af' }}>
+                  <i className="fas fa-calendar" />
+                  Created {fmt(role.created_at)}
+                </div>
+              </div>
+
+              {/* Card footer */}
+              <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #f0f4f8', display: 'flex', gap: '0.4rem' }}>
+                <Link href={`/admin/dashboard/roles/permissions/${role.id}`} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`} style={{ flex: 1, justifyContent: 'center' }}>
+                  <i className="fas fa-key" />Permissions
+                </Link>
+                {hasPermission('role.update') && (
+                  <Link href={`/admin/dashboard/roles/edit/${role.id}`} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}>
+                    <i className="fas fa-edit" />Edit
+                  </Link>
+                )}
+                {hasPermission('role.delete') && (
+                  <button onClick={() => handleDelete(role.id)} className={`${s.btnIcon} ${s.btnIconDanger}`} title="Delete">
+                    <i className="fas fa-trash" />
+                  </button>
+                )}
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && Array.isArray(roles) && roles.length === 0 && (
-        <div className="text-center py-5">
-          <i className="fas fa-user-shield text-muted fs-1 mb-3"></i>
-          <h5 className="text-muted">No roles found</h5>
-          <p className="text-muted">Create your first role to get started.</p>
-          <Link href="/admin/dashboard/roles/add" className="btn btn-primary-custom">
-            <i className="fas fa-plus me-2"></i>
-            Add Role
-          </Link>
         </div>
       )}
     </div>

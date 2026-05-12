@@ -6,52 +6,53 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { API_ENDPOINTS, apiService } from '@/services/api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const API_URL   = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 const IMAGE_URL = API_URL.replace('/api', '') || 'http://localhost:5000';
+
+const STAT_CONFIG = [
+  { key: 'applications', label: 'Applications', sub: 'Total submitted', icon: 'fas fa-file-alt',        color: '#2563eb', href: '/admin/dashboard/student-portal/applications' },
+  { key: 'payments',     label: 'Payments',     sub: 'Completed',       icon: 'fas fa-credit-card',     color: '#059669', href: '/admin/dashboard/student-portal/payments' },
+  { key: 'exams',        label: 'Exams',        sub: 'Scheduled',       icon: 'fas fa-clipboard-check', color: '#d97706', href: '/admin/dashboard/student-portal/exams' },
+  { key: 'results',      label: 'Results',      sub: 'Approved',        icon: 'fas fa-poll',            color: '#7c3aed', href: '/admin/dashboard/student-portal/results' },
+];
+
+const QUICK_ACTIONS = [
+  { label: 'Browse Programs', desc: 'View available admissions',  icon: 'fas fa-search',      color: '#2563eb', href: '/admin/dashboard/student-portal/applications/browse' },
+  { label: 'My Applications', desc: 'Track status',               icon: 'fas fa-list-check',  color: '#059669', href: '/admin/dashboard/student-portal/applications' },
+  { label: 'Exam Card',       desc: 'Download your card',         icon: 'fas fa-id-card',     color: '#d97706', href: '/admin/dashboard/student-portal/exams' },
+  { label: 'Payment History', desc: 'View all receipts',          icon: 'fas fa-receipt',     color: '#059669', href: '/admin/dashboard/student-portal/payments/history' },
+  { label: 'Results',         desc: 'Admission status',           icon: 'fas fa-chart-bar',   color: '#7c3aed', href: '/admin/dashboard/student-portal/results' },
+  { label: 'Edit Profile',    desc: 'Update your info',           icon: 'fas fa-user-edit',   color: '#0891b2', href: '/admin/dashboard/student-portal/profile/edit' },
+];
 
 export default function StudentPortalDashboard() {
   const { data: session, status } = useSession();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]       = useState(true);
   const [studentData, setStudentData] = useState(null);
-  const [stats, setStats] = useState({
-    applications: 0,
-    payments: 0,
-    exams: 0,
-    results: 0
-  });
+  const [stats, setStats]           = useState({ applications: 0, payments: 0, exams: 0, results: 0 });
 
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
-      
-      const [profileResponse, applicationsResponse] = await Promise.all([
+      const [profileRes, appsRes] = await Promise.all([
         apiService.get(API_ENDPOINTS.STUDENTS.GET_ME),
-        apiService.get(API_ENDPOINTS.APPLICATIONS.GET_MY)
+        apiService.get(API_ENDPOINTS.APPLICATIONS.GET_MY),
       ]);
-
-      const profile = profileResponse.data || profileResponse;
-      const applications = applicationsResponse.data?.data || applicationsResponse.data || [];
-      const normalizedApplications = Array.isArray(applications) ? applications : [];
-
+      const profile = profileRes.data || profileRes;
+      const apps = Array.isArray(appsRes.data?.data) ? appsRes.data.data : (Array.isArray(appsRes.data) ? appsRes.data : []);
       setStudentData(profile);
       setStats({
-        applications: normalizedApplications.length,
-        payments: normalizedApplications.filter((app) => app.payment_status === 'paid').length,
-        exams: normalizedApplications.filter((app) => app.exam_date_id || app.exam_date).length,
-        results: normalizedApplications.filter((app) => app.admission_status === 'approved').length
+        applications: apps.length,
+        payments:     apps.filter(a => a.payment_status === 'paid').length,
+        exams:        apps.filter(a => a.exam_date_id || a.exam_date).length,
+        results:      apps.filter(a => a.admission_status === 'approved').length,
       });
-
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* silent — dashboard stats are non-critical */ }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
-    if (status === 'authenticated' && session?.user?.id && session?.accessToken) {
-      fetchDashboardData();
-    }
+    if (status === 'authenticated' && session?.user?.id && session?.accessToken) fetchDashboardData();
   }, [status, session?.user?.id, session?.accessToken, fetchDashboardData]);
 
   const profilePhotoUrl = useMemo(() => {
@@ -61,304 +62,101 @@ export default function StudentPortalDashboard() {
 
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+        <div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" />
       </div>
     );
   }
 
+  const fullName = [studentData?.first_name, studentData?.last_name].filter(Boolean).join(' ');
+
   return (
-    <div className="container-fluid" style={{ background: '#f5f7fb', minHeight: '100vh', margin: '-1rem', padding: '1rem' }}>
-      {/* Hero Welcome Section */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #eef4ff 100%)' }}>
-            <div className="card-body p-4">
-              <div className="row align-items-center">
-                <div className="col-lg-8">
-                  <div className="d-flex align-items-center mb-3">
-                    <div className="me-3">
-                      {profilePhotoUrl ? (
-                        <Image
-                          src={profilePhotoUrl}
-                          alt="Profile"
-                          width={70}
-                          height={70}
-                          unoptimized
-                          className="rounded-circle border border-2 border-primary"
-                          style={{ objectFit: 'cover' }}
-                        />
-                      ) : (
-                        <div 
-                          className="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center"
-                          style={{ width: '70px', height: '70px', fontSize: '1.8rem' }}
-                        >
-                          <i className="fas fa-user"></i>
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="mb-1 fw-bold">
-                        Welcome back, {studentData?.first_name}!
-                      </h3>
-                      <p className="text-muted mb-0">
-                        Ready to continue your academic journey?
-                      </p>
-                    </div>
-                  </div>
-                  <div className="d-flex gap-2 flex-wrap align-items-center">
-                    <span className="badge border border-primary d-inline-flex align-items-center" style={{ background: '#F8F8F8', color: '#000', padding: '0.5rem 1rem', fontSize: '0.875rem', fontWeight: '500' }}>
-                      <i className="fas fa-id-card text-primary me-2"></i>
-                      {studentData?.student_id}
-                    </span>
-                    <span className="badge border border-primary d-inline-flex align-items-center" style={{ background: '#F8F8F8', color: '#000', padding: '0.5rem 1rem', fontSize: '0.875rem', fontWeight: '500' }}>
-                      <i className="fas fa-graduation-cap text-primary me-2"></i>
-                      {studentData?.schema_display_name}
-                    </span>
-                    <span className="badge border border-primary d-inline-flex align-items-center" style={{ background: '#F8F8F8', color: '#000', padding: '0.5rem 1rem', fontSize: '0.875rem', fontWeight: '500' }}>
-                      <i className="fas fa-check-circle text-primary me-2"></i>
-                      Active
-                    </span>
-                  </div>
-                </div>
-                <div className="col-lg-4 text-lg-end mt-3 mt-lg-0">
-                  <Link 
-                    href="/admin/dashboard/student-portal/applications" 
-                    className="btn btn-primary btn-lg px-4"
-                  >
-                    <i className="fas fa-list-check me-2"></i>
-                    Continue Applications
-                  </Link>
-                </div>
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', margin: '-1rem', padding: '1.5rem' }}>
+
+      {/* Welcome Banner */}
+      <div className="sd-banner" style={{ marginBottom: '1.5rem' }}>
+        <div className="sd-banner-inner">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            {profilePhotoUrl ? (
+              <Image src={profilePhotoUrl} alt="Profile" width={64} height={64} unoptimized style={{ borderRadius: '50%', objectFit: 'cover', border: '3px solid rgba(255,255,255,0.5)' }} />
+            ) : (
+              <div className="sd-avatar">{studentData?.first_name?.[0]?.toUpperCase() || <i className="fas fa-user" />}</div>
+            )}
+            <div>
+              <p className="sd-banner-greeting">Welcome back</p>
+              <h2 className="sd-banner-name">{fullName || 'Student'}</h2>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
+                {studentData?.student_id && <span className="sd-chip"><i className="fas fa-id-badge" style={{ marginRight: 4 }} />{studentData.student_id}</span>}
+                {studentData?.schema_display_name && <span className="sd-chip"><i className="fas fa-graduation-cap" style={{ marginRight: 4 }} />{studentData.schema_display_name}</span>}
+                <span className="sd-chip sd-chip-green"><i className="fas fa-circle" style={{ fontSize: '0.5rem', verticalAlign: 'middle', marginRight: 4 }} />Active</span>
               </div>
             </div>
           </div>
+          <Link href="/admin/dashboard/student-portal/applications/browse" className="sd-banner-btn">
+            <i className="fas fa-search" style={{ marginRight: 8 }} />Browse Programs
+          </Link>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="row mb-4">
-        <div className="col-lg-3 col-md-6 mb-3">
-          <div className="card border shadow-sm hover-card h-100">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <p className="text-muted mb-1 small text-uppercase fw-semibold">Applications</p>
-                  <h2 className="mb-0 fw-bold text-primary">{stats.applications}</h2>
-                  <small className="text-muted">
-                    <i className="fas fa-arrow-up me-1"></i>
-                    Active
-                  </small>
+      {/* Stats Row */}
+      <div className="sd-stats-row">
+        {STAT_CONFIG.map((st) => (
+          <Link key={st.key} href={st.href} style={{ textDecoration: 'none' }}>
+            <div className="sd-stat-card" style={{ '--accent': st.color }}>
+              <div className="sd-stat-left">
+                <div className="sd-stat-icon" style={{ background: `${st.color}18`, color: st.color }}>
+                  <i className={st.icon} />
                 </div>
-                <div className="icon-box">
-                  <i className="fas fa-file-alt text-primary"></i>
+                <div>
+                  <div className="sd-stat-label">{st.label}</div>
+                  <div className="sd-stat-number" style={{ color: st.color }}>{stats[st.key]}</div>
+                  <div className="sd-stat-sub">{st.sub}</div>
                 </div>
               </div>
-              <Link href="/admin/dashboard/student-portal/applications" className="btn btn-sm btn-outline-primary w-100" style={{ background: '#F8F8F8' }}>
-                <i className="fas fa-arrow-right me-2"></i>
-                View All
-              </Link>
+              <i className="fas fa-chevron-right sd-stat-arrow" style={{ color: st.color }} />
             </div>
-          </div>
-        </div>
-
-        <div className="col-lg-3 col-md-6 mb-3">
-          <div className="card border shadow-sm hover-card h-100">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <p className="text-muted mb-1 small text-uppercase fw-semibold">Payments</p>
-                  <h2 className="mb-0 fw-bold text-primary">{stats.payments}</h2>
-                  <small className="text-muted">
-                    <i className="fas fa-check-circle me-1"></i>
-                    Completed
-                  </small>
-                </div>
-                <div className="icon-box">
-                  <i className="fas fa-credit-card text-primary"></i>
-                </div>
-              </div>
-              <Link href="/admin/dashboard/student-portal/payments" className="btn btn-sm btn-outline-primary w-100" style={{ background: '#F8F8F8' }}>
-                <i className="fas fa-arrow-right me-2"></i>
-                View All
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-lg-3 col-md-6 mb-3">
-          <div className="card border shadow-sm hover-card h-100">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <p className="text-muted mb-1 small text-uppercase fw-semibold">Exams</p>
-                  <h2 className="mb-0 fw-bold text-primary">{stats.exams}</h2>
-                  <small className="text-muted">
-                    <i className="fas fa-clock me-1"></i>
-                    Upcoming
-                  </small>
-                </div>
-                <div className="icon-box">
-                  <i className="fas fa-clipboard-check text-primary"></i>
-                </div>
-              </div>
-              <Link href="/admin/dashboard/student-portal/exams" className="btn btn-sm btn-outline-primary w-100" style={{ background: '#F8F8F8' }}>
-                <i className="fas fa-arrow-right me-2"></i>
-                View All
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-lg-3 col-md-6 mb-3">
-          <div className="card border shadow-sm hover-card h-100">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <p className="text-muted mb-1 small text-uppercase fw-semibold">Results</p>
-                  <h2 className="mb-0 fw-bold text-primary">{stats.results}</h2>
-                  <small className="text-muted">
-                    <i className="fas fa-hourglass-half me-1"></i>
-                    Pending
-                  </small>
-                </div>
-                <div className="icon-box">
-                  <i className="fas fa-chart-line text-primary"></i>
-                </div>
-              </div>
-              <Link href="/admin/dashboard/student-portal/results" className="btn btn-sm btn-outline-primary w-100" style={{ background: '#F8F8F8' }}>
-                <i className="fas fa-arrow-right me-2"></i>
-                View All
-              </Link>
-            </div>
-          </div>
-        </div>
+          </Link>
+        ))}
       </div>
 
-      {/* Quick Actions */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border shadow-sm">
-            <div className="card-header bg-white border-bottom py-3">
-              <h5 className="mb-0 fw-bold">
-                <i className="fas fa-bolt text-primary me-2"></i>
-                Quick Actions
-              </h5>
+      {/* Main Grid */}
+      <div className="sd-main-grid">
+
+        {/* Left: Quick Actions + Recent Activity */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div className="sd-card">
+            <div className="sd-card-header">
+              <span className="sd-card-title"><i className="fas fa-bolt" style={{ marginRight: 8, color: '#d97706' }} />Quick Actions</span>
             </div>
-            <div className="card-body p-4">
-              <div className="row g-3">
-                <div className="col-lg-3 col-md-6">
-                  <Link href="/admin/dashboard/student-portal/applications/browse" className="text-decoration-none">
-                    <div className="action-card border shadow-sm">
-                      <div className="action-icon bg-primary text-white mb-3">
-                        <i className="fas fa-clipboard-list"></i>
+            <div className="sd-card-body">
+              <div className="sd-actions-grid">
+                {QUICK_ACTIONS.map((a) => (
+                  <Link key={a.label} href={a.href} style={{ textDecoration: 'none' }}>
+                    <div className="sd-action-card">
+                      <div className="sd-action-icon" style={{ background: `${a.color}15`, color: a.color }}>
+                        <i className={a.icon} />
                       </div>
-                      <h6 className="mb-1 fw-bold text-dark">Available Applications</h6>
-                      <p className="small text-muted mb-0">Browse admission programs</p>
+                      <div className="sd-action-label">{a.label}</div>
+                      <div className="sd-action-desc">{a.desc}</div>
                     </div>
                   </Link>
-                </div>
-                
-                <div className="col-lg-3 col-md-6">
-                  <Link href="/admin/dashboard/student-portal/applications" className="text-decoration-none">
-                    <div className="action-card border shadow-sm">
-                      <div className="action-icon bg-primary text-white mb-3">
-                        <i className="fas fa-list-check"></i>
-                      </div>
-                      <h6 className="mb-1 fw-bold text-dark">My Applications</h6>
-                      <p className="small text-muted mb-0">Track application status</p>
-                    </div>
-                  </Link>
-                </div>
-                
-                <div className="col-lg-3 col-md-6">
-                  <Link href="/admin/dashboard/student-portal/exams" className="text-decoration-none">
-                    <div className="action-card border shadow-sm">
-                      <div className="action-icon bg-primary text-white mb-3">
-                        <i className="fas fa-download"></i>
-                      </div>
-                      <h6 className="mb-1 fw-bold text-dark">Download Exam Card</h6>
-                      <p className="small text-muted mb-0">Get your exam card</p>
-                    </div>
-                  </Link>
-                </div>
-                
-                <div className="col-lg-3 col-md-6">
-                  <Link href="/admin/dashboard/student-portal/profile/edit" className="text-decoration-none">
-                    <div className="action-card border shadow-sm">
-                      <div className="action-icon bg-primary text-white mb-3">
-                        <i className="fas fa-user-edit"></i>
-                      </div>
-                      <h6 className="mb-1 fw-bold text-dark">Update Profile</h6>
-                      <p className="small text-muted mb-0">Edit your information</p>
-                    </div>
-                  </Link>
-                </div>
-                
-                <div className="col-lg-3 col-md-6">
-                  <Link href="/admin/dashboard/student-portal/payments/history" className="text-decoration-none">
-                    <div className="action-card border shadow-sm">
-                      <div className="action-icon bg-success text-white mb-3">
-                        <i className="fas fa-receipt"></i>
-                      </div>
-                      <h6 className="mb-1 fw-bold text-dark">Payment History</h6>
-                      <p className="small text-muted mb-0">View all payment records</p>
-                    </div>
-                  </Link>
-                </div>
-                
-                <div className="col-lg-3 col-md-6">
-                  <Link href="/admin/dashboard/student-portal/results" className="text-decoration-none">
-                    <div className="action-card border shadow-sm">
-                      <div className="action-icon bg-info text-white mb-3">
-                        <i className="fas fa-poll"></i>
-                      </div>
-                      <h6 className="mb-1 fw-bold text-dark">Results</h6>
-                      <p className="small text-muted mb-0">Check admission/result status</p>
-                    </div>
-                  </Link>
-                </div>
+                ))}
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Main Content Area */}
-      <div className="row">
-        {/* Recent Applications */}
-        <div className="col-lg-8 mb-4">
-          <div className="card border shadow-sm h-100">
-            <div className="card-header bg-white border-bottom py-3">
-              <div className="d-flex justify-content-between align-items-center">
-                <h5 className="mb-0 fw-bold">
-                  <i className="fas fa-clock text-primary me-2"></i>
-                  Recent Activity
-                </h5>
-                <Link href="/admin/dashboard/student-portal/applications" className="btn btn-sm btn-outline-primary">
-                  View All
-                  <i className="fas fa-arrow-right ms-2"></i>
-                </Link>
-              </div>
+          <div className="sd-card">
+            <div className="sd-card-header">
+              <span className="sd-card-title"><i className="fas fa-clock" style={{ marginRight: 8, color: '#2563eb' }} />Recent Activity</span>
+              <Link href="/admin/dashboard/student-portal/applications" className="sd-card-link">View all <i className="fas fa-arrow-right" style={{ marginLeft: 4 }} /></Link>
             </div>
-            <div className="card-body p-4">
-              {/* Empty State */}
-              <div className="text-center py-5">
-                <div className="empty-state-icon mb-4">
-                  <i className="fas fa-inbox text-primary"></i>
-                </div>
-                <h5 className="mb-2 fw-bold">No Applications Yet</h5>
-                <p className="text-muted mb-4">
-                  Start your admission journey by browsing available programs
-                </p>
-                <Link 
-                  href="/admin/dashboard/student-portal/applications/browse" 
-                  className="btn btn-primary btn-lg px-4"
-                >
-                  <i className="fas fa-rocket me-2"></i>
-                  Browse Available Applications
+            <div className="sd-card-body">
+              <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+                <div className="sd-empty-icon" style={{ marginBottom: '0.75rem' }}><i className="fas fa-inbox" /></div>
+                <h6 style={{ fontWeight: 600, marginBottom: 4 }}>No applications yet</h6>
+                <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Start your journey by browsing available programs</p>
+                <Link href="/admin/dashboard/student-portal/applications/browse" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: '#1e3a5f', color: '#fff', borderRadius: 8, padding: '0.5rem 1.25rem', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>
+                  <i className="fas fa-search" />Browse Programs
                 </Link>
               </div>
             </div>
@@ -366,274 +164,104 @@ export default function StudentPortalDashboard() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="col-lg-4 mb-4">
-          {/* Student Info Card */}
-          <div className="card border shadow-sm mb-4">
-            <div className="card-header bg-white border-bottom py-3">
-              <h6 className="mb-0 fw-bold">
-                <i className="fas fa-user-circle text-primary me-2"></i>
-                Student Information
-              </h6>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* Profile Card */}
+          <div className="sd-card">
+            <div className="sd-card-header">
+              <span className="sd-card-title"><i className="fas fa-user-circle" style={{ marginRight: 8, color: '#2563eb' }} />Profile</span>
+              <Link href="/admin/dashboard/student-portal/profile/edit" className="sd-card-link">Edit <i className="fas fa-pen" style={{ marginLeft: 4 }} /></Link>
             </div>
-            <div className="card-body p-4">
-              <div className="text-center mb-3">
+            <div className="sd-card-body">
+              <div style={{ textAlign: 'center', marginBottom: '1rem', paddingTop: '0.5rem' }}>
                 {profilePhotoUrl ? (
-                  <Image
-                    src={profilePhotoUrl}
-                    alt="Profile"
-                    width={100}
-                    height={100}
-                    unoptimized
-                    className="rounded-circle border border-2 border-primary mb-3"
-                    style={{ objectFit: 'cover' }}
-                  />
+                  <Image src={profilePhotoUrl} alt="Profile" width={88} height={88} unoptimized style={{ borderRadius: '50%', objectFit: 'cover', border: '3px solid #e5eaf2', display: 'block', margin: '0 auto 0.5rem' }} />
                 ) : (
-                  <div 
-                    className="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center mb-3"
-                    style={{ width: '100px', height: '100px', fontSize: '2.5rem' }}
-                  >
-                    <i className="fas fa-user"></i>
-                  </div>
+                  <div className="sd-profile-avatar">{studentData?.first_name?.[0]?.toUpperCase() || <i className="fas fa-user" />}</div>
                 )}
-                <h6 className="mb-0 fw-bold">{studentData?.first_name} {studentData?.last_name}</h6>
-                <p className="text-muted small mb-0">{studentData?.email}</p>
+                <div style={{ fontWeight: 600 }}>{fullName}</div>
+                <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{studentData?.email}</div>
               </div>
-              
-              <hr className="my-3" />
-              
-              <div className="info-list">
-                <div className="info-item">
-                  <span className="info-label">
-                    <i className="fas fa-hashtag text-primary me-2"></i>
-                    Student ID
-                  </span>
-                  <span className="info-value fw-bold text-primary">{studentData?.student_id}</span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">
-                    <i className="fas fa-layer-group text-primary me-2"></i>
-                    Level
-                  </span>
-                  <span className="info-value">{studentData?.schema_display_name}</span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">
-                    <i className="fas fa-calendar text-primary me-2"></i>
-                    Joined
-                  </span>
-                  <span className="info-value">
-                    {studentData?.created_at && new Date(studentData.created_at).toLocaleDateString()}
-                  </span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">
-                    <i className="fas fa-signal text-primary me-2"></i>
-                    Status
-                  </span>
-                  <span className="badge bg-primary">Active</span>
-                </div>
+              <hr style={{ borderColor: '#e5eaf2', margin: '0.75rem 0' }} />
+              <div className="sd-info-list">
+                {[
+                  { icon: 'fas fa-hashtag',     label: 'Student ID', value: studentData?.student_id },
+                  { icon: 'fas fa-layer-group', label: 'Program',    value: studentData?.schema_display_name },
+                  { icon: 'fas fa-calendar',    label: 'Joined',     value: studentData?.created_at ? new Date(studentData.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—' },
+                  { icon: 'fas fa-circle',      label: 'Status',     value: <span style={{ background: '#d1fae5', color: '#065f46', fontSize: '0.78rem', fontWeight: 500, padding: '0.15rem 0.5rem', borderRadius: 10 }}>Active</span> },
+                ].map(row => (
+                  <div className="sd-info-row" key={row.label}>
+                    <span className="sd-info-label"><i className={`${row.icon}`} style={{ color: '#2563eb', fontSize: '0.75rem', marginRight: 6 }} />{row.label}</span>
+                    <span className="sd-info-value">{row.value || '—'}</span>
+                  </div>
+                ))}
               </div>
-              
-              <hr className="my-3" />
-              
-              <Link 
-                href="/admin/dashboard/student-portal/profile/edit" 
-                className="btn btn-primary w-100"
-              >
-                <i className="fas fa-edit me-2"></i>
-                Edit Profile
-              </Link>
             </div>
           </div>
 
-          {/* Upcoming Events Card */}
-          <div className="card border shadow-sm">
-            <div className="card-header bg-white border-bottom py-3">
-              <h6 className="mb-0 fw-bold">
-                <i className="fas fa-calendar-alt text-primary me-2"></i>
-                Upcoming Events
-              </h6>
-            </div>
-            <div className="card-body p-4">
-              <div className="event-item">
-                <div className="event-date border border-primary">
-                  <div className="date-day text-primary">--</div>
-                  <div className="date-month text-muted">---</div>
-                </div>
-                <div className="event-details">
-                  <h6 className="mb-1 small">No upcoming events</h6>
-                  <p className="text-muted mb-0" style={{ fontSize: '0.75rem' }}>
-                    Events will appear here
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Help Card */}
+          <div className="sd-help-card">
+            <i className="fas fa-headset sd-help-icon" />
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Need help?</div>
+            <p style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '1rem' }}>
+              Our support team is ready to assist with applications, payments, or technical issues.
+            </p>
+            <Link href="/admin/dashboard/student-portal/help" style={{ display: 'block', background: '#1e3a5f', color: '#fff', borderRadius: 8, padding: '0.5rem', textAlign: 'center', fontWeight: 600, fontSize: '0.875rem', textDecoration: 'none' }}>
+              Contact Support
+            </Link>
           </div>
         </div>
       </div>
 
-      {/* Help & Resources */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card border shadow-sm">
-            <div className="card-body p-4">
-              <div className="row align-items-center">
-                <div className="col-lg-8">
-                  <h5 className="mb-2 fw-bold">
-                    <i className="fas fa-question-circle text-primary me-2"></i>
-                    Need Help?
-                  </h5>
-                  <p className="text-muted mb-0">
-                    Our support team is here to assist you with any questions about the admission process, 
-                    payments, or technical issues.
-                  </p>
-                </div>
-                <div className="col-lg-4 text-lg-end mt-3 mt-lg-0">
-                  <Link href="/admin/dashboard/student-portal/help" className="btn btn-primary px-4">
-                    <i className="fas fa-headset me-2"></i>
-                    Contact Support
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Custom Styles */}
       <style jsx>{`
-        .hover-card {
-          transition: all 0.3s ease;
-        }
-        
-        .hover-card:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15) !important;
-        }
+        .sd-banner { background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); border-radius: 16px; padding: 2px; }
+        .sd-banner-inner { background: linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 100%); border-radius: 14px; padding: 1.75rem 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem; }
+        .sd-avatar { width: 64px; height: 64px; border-radius: 50%; background: rgba(255,255,255,0.2); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; font-weight: 700; flex-shrink: 0; border: 3px solid rgba(255,255,255,0.35); }
+        .sd-banner-greeting { color: rgba(255,255,255,0.65); font-size: 0.85rem; margin: 0; }
+        .sd-banner-name { color: #fff; font-size: 1.5rem; font-weight: 700; margin: 0; }
+        .sd-chip { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.9); border-radius: 20px; padding: 0.2rem 0.75rem; font-size: 0.78rem; font-weight: 500; }
+        .sd-chip-green { background: rgba(16,185,129,0.25); color: #6ee7b7; }
+        .sd-banner-btn { background: rgba(255,255,255,0.15); color: #fff !important; border: 1.5px solid rgba(255,255,255,0.4); border-radius: 10px; padding: 0.6rem 1.4rem; font-size: 0.9rem; font-weight: 600; text-decoration: none; white-space: nowrap; display: inline-block; }
+        .sd-banner-btn:hover { background: rgba(255,255,255,0.25); }
 
-        .icon-box {
-          width: 56px;
-          height: 56px;
-          background: rgba(var(--bs-primary-rgb), 0.1);
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.5rem;
-        }
+        .sd-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
+        .sd-stat-card { background: #fff; border-radius: 12px; padding: 1.25rem 1.25rem 1.25rem 0; border-left: 4px solid var(--accent); display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 4px rgba(0,0,0,0.06); transition: box-shadow 0.2s, transform 0.2s; }
+        .sd-stat-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-2px); }
+        .sd-stat-left { display: flex; align-items: center; gap: 1rem; padding-left: 1.25rem; }
+        .sd-stat-icon { width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+        .sd-stat-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+        .sd-stat-number { font-size: 1.75rem; font-weight: 800; line-height: 1.1; }
+        .sd-stat-sub { font-size: 0.75rem; color: #9ca3af; }
+        .sd-stat-arrow { font-size: 0.75rem; opacity: 0.5; margin-right: 0.5rem; }
 
-        .action-card {
-          padding: 2rem 1.5rem;
-          border-radius: 8px;
-          transition: all 0.3s ease;
-          cursor: pointer;
-          text-align: center;
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          background: white;
-        }
+        .sd-main-grid { display: grid; grid-template-columns: 1fr 340px; gap: 1.5rem; }
+        .sd-card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow: hidden; }
+        .sd-card-header { padding: 1rem 1.5rem; border-bottom: 1px solid #f0f4f8; display: flex; align-items: center; justify-content: space-between; }
+        .sd-card-title { font-weight: 700; font-size: 0.95rem; color: #1e293b; }
+        .sd-card-link { font-size: 0.8rem; color: #2563eb; text-decoration: none; font-weight: 500; }
+        .sd-card-link:hover { text-decoration: underline; }
+        .sd-card-body { padding: 1.5rem; }
 
-        .action-card:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15);
-        }
+        .sd-actions-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+        .sd-action-card { background: #f8fafc; border: 1px solid #e5eaf2; border-radius: 12px; padding: 1.25rem 1rem; text-align: center; transition: all 0.2s; cursor: pointer; }
+        .sd-action-card:hover { background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); border-color: transparent; }
+        .sd-action-icon { width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin: 0 auto 0.75rem; }
+        .sd-action-label { font-weight: 600; font-size: 0.875rem; color: #1e293b; margin-bottom: 0.2rem; }
+        .sd-action-desc { font-size: 0.75rem; color: #9ca3af; }
 
-        .action-icon {
-          width: 60px;
-          height: 60px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.8rem;
-        }
+        .sd-empty-icon { width: 72px; height: 72px; background: #eff6ff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.75rem; color: #2563eb; margin: 0 auto; }
+        .sd-profile-avatar { width: 88px; height: 88px; border-radius: 50%; background: #1e3a5f; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; border: 3px solid #e5eaf2; margin: 0 auto 0.5rem; }
+        .sd-info-list { display: flex; flex-direction: column; gap: 0.625rem; }
+        .sd-info-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; }
+        .sd-info-label { color: #6b7280; }
+        .sd-info-value { font-weight: 500; color: #1e293b; text-align: right; }
 
-        .empty-state-icon {
-          width: 100px;
-          height: 100px;
-          background: rgba(var(--bs-primary-rgb), 0.1);
-          border-radius: 50%;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 3rem;
-          margin: 0 auto;
-        }
+        .sd-help-card { background: linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%); border: 1px solid #bfdbfe; border-radius: 14px; padding: 1.5rem; text-align: center; }
+        .sd-help-icon { font-size: 2rem; color: #2563eb; margin-bottom: 0.75rem; display: block; }
 
-        .info-list {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-
-        .info-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .info-label {
-          font-size: 0.875rem;
-          color: #6c757d;
-        }
-
-        .info-value {
-          font-size: 0.875rem;
-          font-weight: 500;
-        }
-
-        .event-item {
-          display: flex;
-          gap: 1rem;
-          align-items: center;
-        }
-
-        .event-date {
-          padding: 0.75rem;
-          border-radius: 8px;
-          text-align: center;
-          min-width: 60px;
-          background: white;
-        }
-
-        .date-day {
-          font-size: 1.25rem;
-          font-weight: bold;
-          line-height: 1;
-        }
-
-        .date-month {
-          font-size: 0.75rem;
-          text-transform: uppercase;
-        }
-
-        .event-details {
-          flex: 1;
-        }
-
-        @media (max-width: 768px) {
-          .icon-box {
-            width: 48px;
-            height: 48px;
-            font-size: 1.25rem;
-          }
-
-          .action-card {
-            padding: 1.5rem 1rem;
-          }
-
-          .action-icon {
-            width: 50px;
-            height: 50px;
-            font-size: 1.5rem;
-          }
-        }
+        @media (max-width: 1024px) { .sd-main-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) { .sd-stats-row { grid-template-columns: repeat(2, 1fr); } .sd-actions-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { .sd-banner-inner { flex-direction: column; align-items: flex-start; } .sd-banner-btn { width: 100%; text-align: center; } .sd-stats-row { grid-template-columns: 1fr 1fr; } }
       `}</style>
     </div>
   );

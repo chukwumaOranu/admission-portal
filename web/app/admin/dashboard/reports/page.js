@@ -1,340 +1,179 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications, usePayments, useEmployees, useExams, useUsers } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
 
-function ReportCard({ report }) {
-  return (
-    <div className="col-md-6 col-lg-4 mb-4">
-      <div className="card border-0 shadow-sm h-100">
-        <div className="card-body">
-          <div className="d-flex align-items-center mb-3">
-            <div className={`text-${report.color} me-3`}>
-              <i className={`${report.icon} fs-2`}></i>
-            </div>
-            <div>
-              <h6 className="card-title mb-0">{report.title}</h6>
-              <small className="text-muted">{report.type}</small>
-            </div>
-          </div>
-
-          <p className="card-text text-muted mb-3">{report.description}</p>
-
-          <div className="row mb-3">
-            <div className="col-6">
-              <div className="text-center">
-                <h6 className="text-primary mb-1">{report.records}</h6>
-                <small className="text-muted">Records</small>
-              </div>
-            </div>
-            <div className="col-6">
-              <div className="text-center">
-                <h6 className="text-info mb-1">{report.lastGenerated}</h6>
-                <small className="text-muted">Last Generated</small>
-              </div>
-            </div>
-          </div>
-
-          <div className="d-flex gap-2">
-            <button className="btn btn-outline-primary btn-sm">
-              <i className="fas fa-eye me-1"></i> View
-            </button>
-            <button className="btn btn-outline-success btn-sm">
-              <i className="fas fa-download me-1"></i> Download
-            </button>
-            <button className="btn btn-outline-secondary btn-sm">
-              <i className="fas fa-sync me-1"></i> Refresh
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+const money = (v) => `₦${parseFloat(v || 0).toLocaleString()}`;
 
 export default function ReportsPage() {
-  const { status } = useSession();
-  const { loading: permissionsLoading } = usePermissions();
-  
-  // Fetch real data from Redux stores
+  const { data: session, status } = useSession();
   const { applications, loading: appsLoading, fetchApplications } = useApplications();
   const { payments, loading: paymentsLoading, fetchPayments } = usePayments();
-  const { employees, loading: employeesLoading, fetchEmployees } = useEmployees();
+  const { employees, loading: empLoading, fetchEmployees } = useEmployees();
   const { entryDates, loading: examsLoading, fetchEntryDates } = useExams();
   const { users, loading: usersLoading, fetchUsers } = useUsers();
+  const loadedRef = useRef(false);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const loading = status === 'loading' || appsLoading || paymentsLoading || empLoading || examsLoading || usersLoading;
 
-  const loadReportsData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await Promise.all([
-        fetchApplications(),
-        fetchPayments(),
-        fetchEmployees(),
-        fetchEntryDates(),
-        fetchUsers()
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchApplications, fetchPayments, fetchEmployees, fetchEntryDates, fetchUsers]);
-
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      loadReportsData();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true;
+      fetchApplications(); fetchPayments(); fetchEmployees(); fetchEntryDates(); fetchUsers();
     }
-  }, [status, loadReportsData]);
+  }, [status, session?.user?.id, fetchApplications, fetchPayments, fetchEmployees, fetchEntryDates, fetchUsers]);
 
-  const today = new Date().toISOString().split('T')[0];
-  const reports = useMemo(() => [
+  const totalRecords = applications.length + payments.length + employees.filter(Boolean).length + entryDates.length + users.length;
+  const totalRevenue = payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+
+  const REPORTS = [
     {
-      id: 1,
-      title: 'Application Summary Report',
-      description: 'Comprehensive overview of all applications',
-      type: 'applications',
-      icon: 'fas fa-file-alt',
-      color: 'info',
-      lastGenerated: today,
-      records: applications.length
+      id: 1, title: 'Application Summary', type: 'applications',
+      description: 'Comprehensive overview of all applications including status breakdowns',
+      icon: 'fas fa-file-alt', color: '#2563eb', bg: '#eff6ff',
+      records: applications.length,
+      breakdown: [
+        { label: 'Pending',  val: applications.filter(a => a.status === 'submitted' || a.status === 'pending').length,   color: '#d97706' },
+        { label: 'Approved', val: applications.filter(a => a.status === 'approved').length, color: '#059669' },
+        { label: 'Rejected', val: applications.filter(a => a.status === 'rejected').length, color: '#dc2626' },
+      ],
+      link: '/admin/dashboard/applications',
     },
     {
-      id: 2,
-      title: 'Payment Transaction Report',
-      description: 'Detailed payment analysis and statistics',
-      type: 'payments',
-      icon: 'fas fa-credit-card',
-      color: 'success',
-      lastGenerated: today,
-      records: payments.length
+      id: 2, title: 'Payment Transactions', type: 'payments',
+      description: 'Detailed payment analysis with revenue and transaction statistics',
+      icon: 'fas fa-credit-card', color: '#059669', bg: '#d1fae5',
+      records: payments.length,
+      breakdown: [
+        { label: 'Successful', val: payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').length, color: '#059669' },
+        { label: 'Pending',    val: payments.filter(p => p.payment_status === 'pending').length, color: '#d97706' },
+        { label: 'Failed',     val: payments.filter(p => p.payment_status === 'failed').length,  color: '#dc2626' },
+      ],
+      link: '/admin/dashboard/payments',
+      extra: money(totalRevenue),
     },
     {
-      id: 3,
-      title: 'Employee Directory Report',
-      description: 'Complete employee information and status',
-      type: 'employees',
-      icon: 'fas fa-users',
-      color: 'primary',
-      lastGenerated: today,
-      records: employees.length
+      id: 3, title: 'Employee Directory', type: 'employees',
+      description: 'Complete employee information, status and portal access records',
+      icon: 'fas fa-users', color: '#0891b2', bg: '#e0f2fe',
+      records: employees.filter(Boolean).length,
+      breakdown: [
+        { label: 'Active',    val: employees.filter(e => e?.status === 'active').length,  color: '#059669' },
+        { label: 'Inactive',  val: employees.filter(e => e?.status !== 'active').length,  color: '#64748b' },
+        { label: 'With Login',val: employees.filter(e => e?.user_id).length,             color: '#7c3aed' },
+      ],
+      link: '/admin/dashboard/employees',
     },
     {
-      id: 4,
-      title: 'Exam Schedule Report',
-      description: 'Upcoming and completed exam schedules',
-      type: 'exams',
-      icon: 'fas fa-clipboard-check',
-      color: 'warning',
-      lastGenerated: today,
-      records: entryDates.length
+      id: 4, title: 'Exam Schedule', type: 'exams',
+      description: 'Upcoming and completed exam schedules and capacity utilisation',
+      icon: 'fas fa-clipboard-check', color: '#d97706', bg: '#fef3c7',
+      records: entryDates.length,
+      breakdown: [
+        { label: 'Upcoming',   val: entryDates.filter(e => new Date(e.exam_date) > new Date()).length,  color: '#0891b2' },
+        { label: 'Completed',  val: entryDates.filter(e => new Date(e.exam_date) < new Date()).length,  color: '#059669' },
+        { label: 'Reg. Open',  val: entryDates.filter(e => e.registration_open).length,                color: '#7c3aed' },
+      ],
+      link: '/admin/dashboard/exams/entry-dates',
     },
     {
-      id: 5,
-      title: 'User Activity Report',
-      description: 'System usage and user activity logs',
-      type: 'users',
-      icon: 'fas fa-user-clock',
-      color: 'secondary',
-      lastGenerated: today,
-      records: users.length
-    }
-  ], [applications.length, payments.length, employees.length, entryDates.length, users.length, today]);
+      id: 5, title: 'User Activity', type: 'users',
+      description: 'System usage, user accounts and portal access statistics',
+      icon: 'fas fa-user-clock', color: '#7c3aed', bg: '#ede9fe',
+      records: users.length,
+      breakdown: [
+        { label: 'Active',    val: users.filter(u => u.is_active).length,  color: '#059669' },
+        { label: 'Inactive',  val: users.filter(u => !u.is_active).length, color: '#64748b' },
+        { label: 'With Role', val: users.filter(u => u.role_id).length,    color: '#0891b2' },
+      ],
+      link: '/admin/dashboard/users',
+    },
+  ];
 
-  const loading = isLoading || appsLoading || paymentsLoading || employeesLoading || examsLoading || usersLoading || permissionsLoading || status === 'loading';
-
-  // Show loading while checking authentication and permissions
-  if (loading || status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
+  if (loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-chart-bar text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-chart-bar" /></span>
             Reports Dashboard
-          </h2>
-          <p className="text-muted mb-0">Generate and manage system reports</p>
+          </h1>
+          <p className={s.pageSub}>Generate and view system-wide reports and analytics</p>
         </div>
-        <div className="d-flex gap-2">
-          <button className="btn btn-outline-primary">
-            <i className="fas fa-plus me-2"></i>
-            Create Report
-          </button>
-          <button className="btn btn-primary-custom">
-            <i className="fas fa-sync me-2"></i>
-            Refresh All
+        <div className={s.pageActions}>
+          <button onClick={() => { fetchApplications(); fetchPayments(); fetchEmployees(); fetchEntryDates(); fetchUsers(); }} className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-sync" />Refresh All
           </button>
         </div>
       </div>
 
-      {/* Report Stats */}
-      <div className="row mb-4">
-        <div className="col-md-3">
-          <div className="stats-card">
-            <div className="d-flex justify-content-between">
-              <div>
-                <p className="stats-label">Total Reports</p>
-                <h3 className="stats-number">{reports.length}</h3>
-              </div>
-              <i className="fas fa-chart-bar text-primary fs-1 opacity-75"></i>
+      {/* Overview stats */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Report Types',   value: REPORTS.length,                   icon: 'fas fa-chart-bar',   color: '#2563eb' },
+          { label: 'Total Records',  value: totalRecords,                      icon: 'fas fa-database',    color: '#0891b2' },
+          { label: 'Total Revenue',  value: money(totalRevenue),               icon: 'fas fa-credit-card', color: '#059669', isText: true },
+          { label: 'Last Updated',   value: 'Today',                           icon: 'fas fa-clock',       color: '#d97706', isText: true },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color, fontSize: st.isText ? '1.1rem' : undefined }}>{st.value}</div>
             </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
           </div>
-        </div>
-            <div className="col-md-3">
-              <div className="stats-card">
-                <div className="d-flex justify-content-between">
-                  <div>
-                    <p className="stats-label">Available Types</p>
-                    <h3 className="stats-number">{reports.length}</h3>
-                  </div>
-                  <i className="fas fa-list text-success fs-1 opacity-75"></i>
+        ))}
+      </div>
+
+      {/* Report cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
+        {REPORTS.map(report => (
+          <div key={report.id} className={s.card} style={{ marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ width: 34, height: 34, borderRadius: 8, background: report.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: report.color, flexShrink: 0 }}>
+                  <i className={report.icon} style={{ fontSize: '0.85rem' }} />
+                </span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e3a5f' }}>{report.title}</div>
+                  <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>{report.records.toLocaleString()} records</div>
                 </div>
               </div>
+              {report.extra && <span style={{ fontWeight: 700, color: report.color, fontSize: '0.875rem' }}>{report.extra}</span>}
             </div>
-        <div className="col-md-3">
-          <div className="stats-card">
-            <div className="d-flex justify-content-between">
-              <div>
-                <p className="stats-label">Total Records</p>
-                <h3 className="stats-number">{reports.reduce((sum, r) => sum + r.records, 0)}</h3>
-              </div>
-              <i className="fas fa-database text-info fs-1 opacity-75"></i>
-            </div>
-          </div>
-        </div>
-        <div className="col-md-3">
-          <div className="stats-card">
-            <div className="d-flex justify-content-between">
-              <div>
-                <p className="stats-label">Last Updated</p>
-                <h3 className="stats-number">Today</h3>
-              </div>
-              <i className="fas fa-clock text-warning fs-1 opacity-75"></i>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Report Filters */}
-      <div className="card card-custom mb-4">
-        <div className="card-body">
-          <div className="row">
-            <div className="col-md-4">
-              <label className="form-label">Filter by Type</label>
-              <select className="form-select">
-                <option value="">All Types</option>
-                <option value="applications">Applications</option>
-                <option value="payments">Payments</option>
-                <option value="employees">Employees</option>
-                <option value="exams">Exams</option>
-                <option value="users">Users</option>
-                <option value="system">System</option>
-              </select>
-            </div>
-            <div className="col-md-4">
-              <label className="form-label">Date Range</label>
-              <select className="form-select">
-                <option value="">All Time</option>
-                <option value="today">Today</option>
-                <option value="week">This Week</option>
-                <option value="month">This Month</option>
-                <option value="quarter">This Quarter</option>
-                <option value="year">This Year</option>
-              </select>
-            </div>
-            <div className="col-md-4">
-              <label className="form-label">&nbsp;</label>
-              <div className="d-flex gap-2">
-                <button className="btn btn-outline-primary">
-                  <i className="fas fa-filter me-1"></i> Apply Filter
-                </button>
-                <button className="btn btn-outline-secondary">
-                  <i className="fas fa-times me-1"></i> Clear
-                </button>
+            {/* Body */}
+            <div style={{ padding: '0.875rem 1.25rem', flex: 1 }}>
+              <p style={{ fontSize: '0.82rem', color: '#6b7280', margin: '0 0 0.75rem', lineHeight: 1.5 }}>{report.description}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                {report.breakdown.map(b => (
+                  <div key={b.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>{b.label}</span>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: b.color }}>{b.val.toLocaleString()}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Reports Grid */}
-      {loading ? (
-        <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-          <p className="mt-3 text-muted">Loading reports...</p>
-        </div>
-      ) : (
-        <div className="row">
-          {reports.map(report => (
-            <ReportCard key={report.id} report={report} />
-          ))}
-        </div>
-      )}
-
-      {/* Quick Actions */}
-      <div className="card card-custom mt-4">
-        <div className="card-header-custom">
-          <h5 className="card-title mb-0">
-            <i className="fas fa-bolt me-2"></i>
-            Quick Report Actions
-          </h5>
-        </div>
-        <div className="card-body">
-          <div className="row">
-            <div className="col-md-3 mb-2">
-              <Link href="/admin/dashboard/applications" className="btn btn-outline-info w-100">
-                <i className="fas fa-file-alt me-2"></i>
-                Application Reports
-              </Link>
-            </div>
-            <div className="col-md-3 mb-2">
-              <Link href="/admin/dashboard/payments" className="btn btn-outline-success w-100">
-                <i className="fas fa-credit-card me-2"></i>
-                Payment Reports
-              </Link>
-            </div>
-            <div className="col-md-3 mb-2">
-              <Link href="/admin/dashboard/employees" className="btn btn-outline-primary w-100">
-                <i className="fas fa-users me-2"></i>
-                Employee Reports
-              </Link>
-            </div>
-            <div className="col-md-3 mb-2">
-              <Link href="/admin/dashboard/exams" className="btn btn-outline-warning w-100">
-                <i className="fas fa-clipboard-check me-2"></i>
-                Exam Reports
+            {/* Footer */}
+            <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #f0f4f8', display: 'flex', gap: '0.4rem' }}>
+              <Link href={report.link} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`} style={{ flex: 1, justifyContent: 'center' }}>
+                <i className="fas fa-eye" />View {report.type}
               </Link>
             </div>
           </div>
-        </div>
+        ))}
       </div>
     </div>
   );

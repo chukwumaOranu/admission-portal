@@ -39,3 +39,7 @@ uploads/
 # Temporary files
 *.tmp
 *.temp
+
+# Docs
+DOCKER_SETUP.md
+ADMISSION_PROCESS_END_TO_END.md

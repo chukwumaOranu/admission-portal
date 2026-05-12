@@ -1,0 +1,605 @@
+/* =====================================================
+   Student Portal Shared Design System
+   Colors: navy #1e3a5f | blue #2563eb | green #059669
+           amber #d97706 | purple #7c3aed | cyan #0891b2
+   ===================================================== */
+
+.wrap {
+  background: #f0f4f8;
+  min-height: 100vh;
+  margin: -1rem;
+  padding: 1.5rem;
+}
+
+/* ── Page header ─────────────────────────────────── */
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.pageTitle {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pageSub {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin: 0.2rem 0 0;
+}
+
+.iconBox {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ── Cards ───────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.cardHeader {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #f0f4f8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cardTitle {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #1e293b;
+}
+
+.cardLink {
+  font-size: 0.8rem;
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.cardLink:hover {
+  text-decoration: underline;
+}
+
+.cardBody {
+  padding: 1.5rem;
+}
+
+/* ── Stat cards (left-border style) ─────────────── */
+.statCard {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem 1.25rem 1.25rem 0;
+  border-left: 4px solid var(--accent, #2563eb);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s, transform 0.2s;
+  text-decoration: none;
+  color: inherit;
+}
+
+.statCard:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  color: inherit;
+}
+
+.statLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-left: 1.25rem;
+}
+
+.statIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.statLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7280;
+}
+
+.statNumber {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.statSub {
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+
+.statArrow {
+  font-size: 0.75rem;
+  opacity: 0.45;
+  margin-right: 0.5rem;
+}
+
+/* ── Buttons ─────────────────────────────────────── */
+.btnPrimary {
+  background: #1e3a5f;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  padding: 0.55rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.btnPrimary:hover {
+  background: #162d4a;
+  color: #fff;
+}
+
+.btnOutline {
+  background: transparent;
+  color: #1e3a5f;
+  border: 1.5px solid #1e3a5f;
+  border-radius: 9px;
+  padding: 0.5rem 1.2rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.btnOutline:hover {
+  background: #1e3a5f;
+  color: #fff;
+}
+
+.btnGreen {
+  background: #059669;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  padding: 0.55rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.btnGreen:hover {
+  background: #047857;
+  color: #fff;
+}
+
+.btnSm {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+  border-radius: 7px;
+}
+
+/* ── Badges ──────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badgePending  { background: #fef3c7; color: #92400e; }
+.badgeApproved { background: #d1fae5; color: #065f46; }
+.badgeRejected { background: #fee2e2; color: #991b1b; }
+.badgeDraft    { background: #f3f4f6; color: #374151; }
+.badgePaid     { background: #d1fae5; color: #065f46; }
+.badgeFailed   { background: #fee2e2; color: #991b1b; }
+.badgeCancelled{ background: #f3f4f6; color: #374151; }
+.badgeInfo     { background: #dbeafe; color: #1e40af; }
+.badgeActive   { background: #d1fae5; color: #065f46; }
+
+/* ── Empty state ─────────────────────────────────── */
+.emptyState {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.emptyIcon {
+  width: 72px;
+  height: 72px;
+  background: #eff6ff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+  color: #2563eb;
+  margin: 0 auto 1rem;
+}
+
+.emptyTitle {
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 0.4rem;
+}
+
+.emptySub {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Alerts ──────────────────────────────────────── */
+.alertInfo {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  font-size: 0.875rem;
+  color: #1e40af;
+}
+
+.alertSuccess {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  font-size: 0.875rem;
+  color: #065f46;
+}
+
+.alertWarning {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  font-size: 0.875rem;
+  color: #92400e;
+}
+
+.alertDanger {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  font-size: 0.875rem;
+  color: #991b1b;
+}
+
+/* ── Filter pills ────────────────────────────────── */
+.filterBar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filterPill {
+  padding: 0.4rem 1rem;
+  border-radius: 20px;
+  border: 1.5px solid #e5eaf2;
+  background: #fff;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filterPillActive {
+  border-color: #1e3a5f;
+  background: #1e3a5f;
+  color: #fff;
+}
+
+/* ── Application card ────────────────────────────── */
+.appCard {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e5eaf2;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  overflow: hidden;
+  transition: box-shadow 0.2s, transform 0.2s;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.appCard:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+
+.appCardHead {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #f0f4f8;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.appCardBody {
+  padding: 1.25rem;
+  flex: 1;
+}
+
+.appCardFoot {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #f0f4f8;
+  background: #fafbfc;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.infoRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  color: #6b7280;
+}
+
+.infoValue {
+  font-weight: 500;
+  color: #1e293b;
+}
+
+/* ── Program card ────────────────────────────────── */
+.programCard {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #e5eaf2;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  overflow: hidden;
+  transition: box-shadow 0.2s, transform 0.2s;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.programCard:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+  transform: translateY(-3px);
+}
+
+.programCardBanner {
+  background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+  padding: 1.25rem 1.5rem;
+}
+
+.programCardBody {
+  padding: 1.25rem 1.5rem;
+  flex: 1;
+}
+
+.programCardFoot {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #f0f4f8;
+  background: #fafbfc;
+}
+
+.feePill {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+/* ── Table ───────────────────────────────────────── */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.table th {
+  background: #f8fafc;
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5eaf2;
+  text-align: left;
+}
+
+.table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid #f3f4f6;
+  color: #374151;
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: #fafbfc;
+}
+
+/* ── Form sections ───────────────────────────────── */
+.formSection {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.formSectionHead {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #f0f4f8;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.formSectionTitle {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #1e293b;
+}
+
+.formSectionBody {
+  padding: 1.5rem;
+}
+
+/* ── Profile photo sidebar ───────────────────────── */
+.photoWrap {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
+
+.photoAvatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #1e3a5f;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin: 0 auto;
+  border: 4px solid #e5eaf2;
+}
+
+/* ── Spinner ─────────────────────────────────────── */
+.spinnerWrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+}
+
+/* ── Calendar (exams) ────────────────────────────── */
+.calendarCell {
+  height: 76px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1.5px solid #e5eaf2;
+  background: #f8fafc;
+  padding: 0.4rem;
+  font-size: 0.8rem;
+  cursor: default;
+  text-align: left;
+}
+
+.calendarCellAvailable {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.calendarCellAvailable:hover {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+
+.calendarCellSelected {
+  background: #1e3a5f !important;
+  border-color: #1e3a5f !important;
+  color: #fff;
+}
+
+/* ── Help card ───────────────────────────────────── */
+.helpCard {
+  background: linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%);
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+/* ── Payment verify / result screens ────────────── */
+.centeredCard {
+  max-width: 640px;
+  margin: 2rem auto;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+.successBanner {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  padding: 2.5rem;
+  text-align: center;
+  color: #fff;
+}
+
+.failBanner {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+  padding: 2.5rem;
+  text-align: center;
+  color: #fff;
+}
+
+.navyBanner {
+  background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+  padding: 2.5rem;
+  text-align: center;
+  color: #fff;
+}

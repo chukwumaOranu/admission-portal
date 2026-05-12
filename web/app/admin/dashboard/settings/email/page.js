@@ -1,495 +1,258 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useSettings } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
 
-const EMAIL_SETTINGS_DEFAULTS = {
-  smtp_host: '',
-  smtp_port: 587,
-  smtp_username: '',
-  smtp_password: '',
-  smtp_secure: false,
-  from_email: '',
-  from_name: '',
-  reply_to: '',
-  email_enabled: true,
-  email_verification_enabled: true,
-  password_reset_enabled: true,
-  notification_enabled: true,
-  welcome_email_enabled: true,
-  application_notifications_enabled: true,
-  payment_notifications_enabled: true,
-  custom_settings: null
+const DEFAULTS = {
+  smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_secure: false,
+  from_email: '', from_name: '', reply_to: '',
+  email_enabled: true, email_verification_enabled: true, password_reset_enabled: true,
+  notification_enabled: true, welcome_email_enabled: true,
+  application_notifications_enabled: true, payment_notifications_enabled: true,
 };
 
+const Toggle = ({ label, name, checked, onChange }) => (
+  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid #f0f4f8', cursor: 'pointer', fontSize: '0.875rem', color: '#374151' }}>
+    <span>{label}</span>
+    <span
+      onClick={() => onChange({ target: { name, type: 'checkbox', checked: !checked } })}
+      style={{
+        width: 40, height: 22, borderRadius: 11, background: checked ? '#059669' : '#d1d5db',
+        position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 3, left: checked ? 21 : 3, width: 16, height: 16,
+        borderRadius: '50%', background: '#fff', transition: 'left 0.2s',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+      }} />
+    </span>
+  </label>
+);
+
 export default function EmailSettingsPage() {
-  const router = useRouter();
   const { data: session, status } = useSession();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
-  
-  // Redux state
-  const {
-    emailSettings: reduxEmailSettings,
-    loading,
-    error: reduxError,
-    fetchEmailSettings,
-    updateEmailSettings,
-    testEmailSettings
-  } = useSettings();
-  
-  const [emailOverrides, setEmailOverrides] = useState({});
-  const [testEmail, setTestEmail] = useState('');
-  const canReadSettings = hasPermission('settings.read');
-  const emailSettings = useMemo(
-    () => ({
-      ...EMAIL_SETTINGS_DEFAULTS,
-      ...(reduxEmailSettings || {}),
-      ...emailOverrides
-    }),
-    [reduxEmailSettings, emailOverrides]
-  );
+  const { emailSettings: reduxSettings, loading, error, fetchEmailSettings, updateEmailSettings, testEmailSettings } = useSettings();
 
+  const [overrides, setOverrides]   = useState({});
+  const [testEmail, setTestEmail]   = useState('');
+  const [notice, setNotice]         = useState('');
+  const loadedRef = useRef(false);
+
+  const canRead   = hasPermission('settings.read');
+  const canUpdate = hasPermission('settings.update');
+
+  const settings = useMemo(() => ({ ...DEFAULTS, ...(reduxSettings || {}), ...overrides }), [reduxSettings, overrides]);
+
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken && canReadSettings) {
-      fetchEmailSettings();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current && canRead) {
+      loadedRef.current = true; fetchEmailSettings();
     }
-  }, [status, session?.user?.id, session?.accessToken, canReadSettings, fetchEmailSettings]);
+  }, [status, session?.user?.id, canRead, fetchEmailSettings]);
 
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.replace('/login');
-    }
-  }, [status, router]);
-
-  const handleUpdateSettings = async (e) => {
-    e.preventDefault();
-    try {
-      await updateEmailSettings(emailSettings);
-      await fetchEmailSettings();
-      setEmailOverrides({});
-      alert('Email settings updated successfully!');
-    } catch (err) {
-      console.error('Error updating email settings:', err);
-      alert('Failed to update email settings');
-    }
+  const set = (e) => {
+    const { name, value, type, checked } = e.target;
+    setOverrides(p => ({ ...p, [name]: type === 'checkbox' ? checked : type === 'number' ? Number(value) : value }));
   };
 
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setEmailOverrides(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : (type === 'number' ? Number(value) : value)
-    }));
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      updateEmailSettings(settings);
+      setOverrides({});
+      setNotice('Email settings updated successfully.');
+    } catch { alert('Failed to update email settings'); }
   };
 
   const handleTestEmail = async () => {
-    if (!testEmail) {
-      alert('Please enter a test email address');
-      return;
-    }
-
+    if (!testEmail) { alert('Enter a test email address.'); return; }
     try {
-      await testEmailSettings({ email: testEmail });
-      alert('Test email sent successfully!');
-    } catch (err) {
-      console.error('Error sending test email:', err);
-      alert('Failed to send test email');
-    }
+      testEmailSettings({ email: testEmail });
+      setNotice('Test email sent!');
+    } catch { alert('Failed to send test email'); }
   };
 
-  // Show loading while checking authentication
   if (status === 'loading' || permissionsLoading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Redirect if not authenticated
-  if (status === 'unauthenticated') {
-    return null;
-  }
-
-  // Check permissions
-  if (!canReadSettings) {
+  if (!canRead) {
     return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Access Denied</h4>
-        <p>You don&apos;t have permission to access email settings.</p>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to access email settings.</div>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-envelope text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-envelope" /></span>
             Email Settings
-          </h2>
-          <p className="text-muted mb-0">Configure email server and notification settings</p>
+          </h1>
+          <p className={s.pageSub}>Configure SMTP server and notification preferences</p>
         </div>
-        <Link href="/admin/dashboard/settings" className="btn btn-outline-secondary">
-          <i className="fas fa-arrow-left me-2"></i>
-          Back to Settings
-        </Link>
       </div>
 
-      <div className="row">
-        {/* Email Settings Form */}
-        <div className="col-lg-8">
-          <form onSubmit={handleUpdateSettings}>
-            {/* SMTP Configuration */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-primary text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-server me-2"></i>
-                  SMTP Configuration
-                </h5>
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
+
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '1.5rem', alignItems: 'start' }}>
+
+          {/* Main column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+            {/* SMTP */}
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}><i className="fas fa-server" style={{ color: '#2563eb' }} />SMTP Configuration</span>
               </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">SMTP Host</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="smtp_host"
-                      value={emailSettings.smtp_host}
-                      onChange={handleInputChange}
-                      placeholder="smtp.gmail.com"
-                    />
+              <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '0.875rem' }}>
+                  <div>
+                    <label className={s.formLabel}>SMTP Host</label>
+                    <input className={s.formInput} type="text" name="smtp_host" value={settings.smtp_host} onChange={set} placeholder="smtp.gmail.com" />
                   </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">SMTP Port</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      name="smtp_port"
-                      value={emailSettings.smtp_port}
-                      onChange={handleInputChange}
-                      min="1"
-                      max="65535"
-                    />
+                  <div>
+                    <label className={s.formLabel}>Port</label>
+                    <input className={s.formInput} type="number" name="smtp_port" value={settings.smtp_port} onChange={set} min={1} max={65535} />
                   </div>
                 </div>
-
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">SMTP Username</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="smtp_username"
-                      value={emailSettings.smtp_username}
-                      onChange={handleInputChange}
-                      placeholder="your-email@gmail.com"
-                    />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+                  <div>
+                    <label className={s.formLabel}>Username</label>
+                    <input className={s.formInput} type="text" name="smtp_username" value={settings.smtp_username} onChange={set} placeholder="your@email.com" />
                   </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">SMTP Password</label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      name="smtp_password"
-                      value={emailSettings.smtp_password}
-                      onChange={handleInputChange}
-                      placeholder="App password or account password"
-                    />
+                  <div>
+                    <label className={s.formLabel}>Password</label>
+                    <input className={s.formInput} type="password" name="smtp_password" value={settings.smtp_password} onChange={set} placeholder="App password" />
                   </div>
                 </div>
-
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="smtp_secure"
-                        checked={emailSettings.smtp_secure}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        Use SSL/TLS
-                      </label>
-                    </div>
-                  </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="email_enabled"
-                        checked={emailSettings.email_enabled}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        Enable Email Service
-                      </label>
-                    </div>
-                  </div>
+                <div style={{ display: 'flex', gap: '2rem' }}>
+                  <Toggle label="Use SSL/TLS" name="smtp_secure" checked={settings.smtp_secure} onChange={set} />
+                  <Toggle label="Enable Email Service" name="email_enabled" checked={settings.email_enabled} onChange={set} />
                 </div>
               </div>
             </div>
 
-            {/* Email Templates */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-success text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-envelope-open-text me-2"></i>
-                  Email Templates
-                </h5>
+            {/* From details */}
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}><i className="fas fa-envelope-open-text" style={{ color: '#059669' }} />Sender Details</span>
               </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">From Email</label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      name="from_email"
-                      value={emailSettings.from_email}
-                      onChange={handleInputChange}
-                      placeholder="noreply@yourschool.com"
-                    />
+              <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+                  <div>
+                    <label className={s.formLabel}>From Email</label>
+                    <input className={s.formInput} type="email" name="from_email" value={settings.from_email} onChange={set} placeholder="noreply@school.com" />
                   </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">From Name</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      name="from_name"
-                      value={emailSettings.from_name}
-                      onChange={handleInputChange}
-                      placeholder="Your School Name"
-                    />
+                  <div>
+                    <label className={s.formLabel}>From Name</label>
+                    <input className={s.formInput} type="text" name="from_name" value={settings.from_name} onChange={set} placeholder="School Admissions" />
                   </div>
                 </div>
-
-                <div className="mb-3">
-                  <label className="form-label">Reply-To Email</label>
-                  <input
-                    type="email"
-                    className="form-control"
-                    name="reply_to"
-                    value={emailSettings.reply_to}
-                    onChange={handleInputChange}
-                    placeholder="support@yourschool.com"
-                  />
+                <div>
+                  <label className={s.formLabel}>Reply-To Email</label>
+                  <input className={s.formInput} type="email" name="reply_to" value={settings.reply_to} onChange={set} placeholder="support@school.com" />
                 </div>
               </div>
             </div>
 
-            {/* Email Notifications */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-warning text-dark">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-bell me-2"></i>
-                  Email Notifications
-                </h5>
+            {/* Notifications */}
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}><i className="fas fa-bell" style={{ color: '#d97706' }} />Email Notifications</span>
               </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="email_verification_enabled"
-                        checked={emailSettings.email_verification_enabled}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        Email Verification
-                      </label>
-                    </div>
-                  </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="password_reset_enabled"
-                        checked={emailSettings.password_reset_enabled}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        Password Reset
-                      </label>
-                    </div>
-                  </div>
-                </div>
+              <div className={s.cardBody} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 2rem' }}>
+                <Toggle label="Email Verification" name="email_verification_enabled" checked={settings.email_verification_enabled} onChange={set} />
+                <Toggle label="Password Reset" name="password_reset_enabled" checked={settings.password_reset_enabled} onChange={set} />
+                <Toggle label="Welcome Emails" name="welcome_email_enabled" checked={settings.welcome_email_enabled} onChange={set} />
+                <Toggle label="General Notifications" name="notification_enabled" checked={settings.notification_enabled} onChange={set} />
+                <Toggle label="Application Updates" name="application_notifications_enabled" checked={settings.application_notifications_enabled} onChange={set} />
+                <Toggle label="Payment Notifications" name="payment_notifications_enabled" checked={settings.payment_notifications_enabled} onChange={set} />
+              </div>
+            </div>
 
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="welcome_email_enabled"
-                        checked={emailSettings.welcome_email_enabled}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        Welcome Emails
-                      </label>
-                    </div>
+            {/* Test */}
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}><i className="fas fa-paper-plane" style={{ color: '#0891b2' }} />Test Configuration</span>
+              </div>
+              <div className={s.cardBody}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.75rem', alignItems: 'flex-end' }}>
+                  <div>
+                    <label className={s.formLabel}>Test Email Address</label>
+                    <input className={s.formInput} type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="test@example.com" />
                   </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="notification_enabled"
-                        checked={emailSettings.notification_enabled}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        General Notifications
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="application_notifications_enabled"
-                        checked={emailSettings.application_notifications_enabled}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        Application Notifications
-                      </label>
-                    </div>
-                  </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <div className="form-check form-switch">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        name="payment_notifications_enabled"
-                        checked={emailSettings.payment_notifications_enabled}
-                        onChange={handleInputChange}
-                      />
-                      <label className="form-check-label">
-                        Payment Notifications
-                      </label>
-                    </div>
-                  </div>
+                  <button type="button" className={`${s.btn} ${s.btnOutline}`} onClick={handleTestEmail} disabled={loading || !canUpdate}>
+                    <i className="fas fa-paper-plane" />Send Test
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Test Email */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-info text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-paper-plane me-2"></i>
-                  Test Email Configuration
-                </h5>
-              </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-8 mb-3">
-                    <label className="form-label">Test Email Address</label>
-                    <input
-                      type="email"
-                      className="form-control"
-                      value={testEmail}
-                      onChange={(e) => setTestEmail(e.target.value)}
-                      placeholder="test@example.com"
-                    />
-                  </div>
-                  
-                  <div className="col-md-4 mb-3">
-                    <label className="form-label">&nbsp;</label>
-                    <button
-                      type="button"
-                      className="btn btn-outline-primary w-100"
-                      onClick={handleTestEmail}
-                      disabled={loading || !hasPermission('settings.update')}
-                    >
-                      <i className="fas fa-paper-plane me-2"></i>
-                      Send Test Email
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="d-flex gap-2 mb-4">
-              <button
-                type="submit"
-                className="btn btn-primary-custom"
-                disabled={loading || !hasPermission('settings.update')}
-              >
-                {loading ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin me-2"></i>
-                    Updating...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-save me-2"></i>
-                    Update Settings
-                  </>
-                )}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={loading || !canUpdate}>
+                {loading ? <><span className="spinner-border spinner-border-sm" />Saving…</> : <><i className="fas fa-save" />Save Settings</>}
               </button>
             </div>
-          </form>
-        </div>
+          </div>
 
-        {/* Help & Info */}
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Email Configuration Help
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="alert alert-info">
-                <h6><i className="fas fa-lightbulb me-2"></i>SMTP Tips:</h6>
-                <ul className="mb-0">
-                  <li>Gmail: smtp.gmail.com:587</li>
-                  <li>Outlook: smtp-mail.outlook.com:587</li>
-                  <li>Use app passwords for Gmail</li>
-                  <li>Enable SSL/TLS for security</li>
-                </ul>
+          {/* Help sidebar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}><i className="fas fa-lightbulb" style={{ color: '#d97706' }} />SMTP Tips</span>
               </div>
-              
-              <div className="alert alert-warning">
-                <h6><i className="fas fa-exclamation-triangle me-2"></i>Security:</h6>
-                <p className="mb-0">
-                  Never share your SMTP credentials. Use app-specific passwords when possible.
+              <div className={s.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.82rem' }}>
+                {[
+                  ['Gmail', 'smtp.gmail.com : 587'],
+                  ['Outlook', 'smtp-mail.outlook.com : 587'],
+                  ['Yahoo', 'smtp.mail.yahoo.com : 587'],
+                ].map(([name, val]) => (
+                  <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid #f0f4f8' }}>
+                    <span style={{ color: '#6b7280' }}>{name}</span>
+                    <span style={{ color: '#1e3a5f', fontWeight: 600 }}>{val}</span>
+                  </div>
+                ))}
+                <p style={{ color: '#9ca3af', margin: '0.5rem 0 0', lineHeight: 1.5 }}>
+                  Use app-specific passwords for Gmail/Outlook to avoid account lockouts.
                 </p>
               </div>
             </div>
+
+            <div className={`${s.alert} ${s.alertDanger}`} style={{ flexDirection: 'column', gap: '0.25rem' }}>
+              <strong><i className="fas fa-shield-alt" /> Security</strong>
+              <p style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.5 }}>
+                Never share SMTP credentials. Always use app-specific passwords when available.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      </form>
+
+      <style jsx>{`
+        @media (max-width: 991px) {
+          div[style*="grid-template-columns: 1fr 320px"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        @media (max-width: 767px) {
+          div[style*="grid-template-columns: 1fr 1fr"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

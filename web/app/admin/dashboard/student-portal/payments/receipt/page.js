@@ -2,21 +2,33 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePayments } from '@/hooks/useRedux';
 import apiService from '@/services/api';
+import s from '@/styles/student-portal.module.css';
+
+const STATUS_CFG = {
+  success:   { cls: s.badgeApproved,  icon: 'fa-check-circle', text: 'Successful' },
+  pending:   { cls: s.badgePending,   icon: 'fa-clock',        text: 'Pending' },
+  failed:    { cls: s.badgeFailed,    icon: 'fa-times-circle', text: 'Failed' },
+  cancelled: { cls: s.badgeCancelled, icon: 'fa-ban',          text: 'Cancelled' },
+};
+
+function PayBadge({ status }) {
+  const b = STATUS_CFG[status] || STATUS_CFG.pending;
+  return <span className={`${s.badge} ${b.cls}`}><i className={`fas ${b.icon}`} />{b.text}</span>;
+}
+
+const fmt = (d) => new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 export default function PaymentReceiptPage() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const { data: session, status } = useSession();
-  
-  const { payments, fetchPaymentsByApplicant } = usePayments();
-  
+  const { status } = useSession();
+  const { payments } = usePayments();
+
   const [loading, setLoading] = useState(true);
   const [payment, setPayment] = useState(null);
-  const [applicant, setApplicant] = useState(null);
   const [error, setError] = useState('');
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -27,163 +39,57 @@ export default function PaymentReceiptPage() {
   const loadPaymentData = useCallback(async () => {
     try {
       setLoading(true);
-      
-      // Find payment in Redux store first
-      const existingPayment = payments.find(p => p.transaction_reference === reference);
-      
-      if (existingPayment) {
-        setPayment(existingPayment);
-        setLoading(false);
-        return;
-      }
-
-      // If not found in store, fetch from API
-      const response = await apiService.get(`/payments/transactions/reference/${reference}`);
-      
-      if (response.data.success) {
-        setPayment(response.data.data);
-      } else {
-        setError('Payment not found');
-      }
-      
-    } catch (err) {
-      console.error('Error loading payment:', err);
-      setError('Failed to load payment details');
-    } finally {
-      setLoading(false);
-    }
+      const existing = payments.find((p) => p.transaction_reference === reference);
+      if (existing) { setPayment(existing); return; }
+      const res = await apiService.get(`/payments/transactions/reference/${reference}`);
+      if (res.data.success) setPayment(res.data.data);
+      else setError('Payment not found');
+    } catch { setError('Failed to load payment details'); }
+    finally { setLoading(false); }
   }, [payments, reference]);
 
   useEffect(() => {
-    if (status === 'authenticated' && reference) {
-      loadPaymentData();
-    }
+    if (status === 'authenticated' && reference) loadPaymentData();
   }, [status, reference, loadPaymentData]);
 
-  const handleDownloadInvoice = async () => {
+  const handleDownload = async () => {
     try {
       setDownloadingInvoice(true);
-      
-      const response = await apiService.get(
-        `/payments/invoice/${reference}`,
-        { responseType: 'blob' }
-      );
-      
-      // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const res = await apiService.get(`/payments/invoice/${reference}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `payment-receipt-${reference}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      link.href = url; link.download = `payment-receipt-${reference}.pdf`;
+      document.body.appendChild(link); link.click(); link.remove();
       window.URL.revokeObjectURL(url);
-      
-    } catch (error) {
-      console.error('Error downloading invoice:', error);
-      alert('Failed to download receipt. Please try again.');
-    } finally {
-      setDownloadingInvoice(false);
-    }
+    } catch { alert('Failed to download receipt.'); }
+    finally { setDownloadingInvoice(false); }
   };
 
-  const handlePreviewInvoice = async () => {
+  const handlePreview = async () => {
     try {
       setLoading(true);
-      
-      const response = await apiService.get(`/payments/invoice/${reference}/preview`);
-      
-      if (response.data.success) {
-        setPreviewData(response.data.data);
-        setShowPreview(true);
-      } else {
-        alert('Failed to generate receipt preview');
-      }
-      
-    } catch (error) {
-      console.error('Error generating preview:', error);
-      alert('Failed to generate receipt preview');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const closePreview = () => {
-    setShowPreview(false);
-    setPreviewData(null);
-  };
-
-  const getStatusBadge = (status) => {
-    const badges = {
-      'success': { color: 'success', icon: 'check-circle', text: 'Successful' },
-      'pending': { color: 'warning', icon: 'clock', text: 'Pending' },
-      'failed': { color: 'danger', icon: 'times-circle', text: 'Failed' },
-      'cancelled': { color: 'secondary', icon: 'ban', text: 'Cancelled' }
-    };
-    
-    const badge = badges[status] || badges['pending'];
-    
-    return (
-      <span className={`badge bg-${badge.color}`}>
-        <i className={`fas fa-${badge.icon} me-1`}></i>
-        {badge.text}
-      </span>
-    );
-  };
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+      const res = await apiService.get(`/payments/invoice/${reference}/preview`);
+      if (res.data.success) { setPreviewData(res.data.data); setShowPreview(true); }
+      else alert('Failed to generate receipt preview');
+    } catch { alert('Failed to generate receipt preview'); }
+    finally { setLoading(false); }
   };
 
   if (loading) {
-    return (
-      <div className="container-fluid">
-        <div className="row justify-content-center">
-          <div className="col-md-6">
-            <div className="card border-0 shadow-lg mt-5">
-              <div className="card-body text-center py-5">
-                <div className="spinner-border text-primary mb-3" style={{ width: '4rem', height: '4rem' }}>
-                  <span className="visually-hidden">Loading...</span>
-                </div>
-                <h4 className="mb-2">Loading Receipt...</h4>
-                <p className="text-muted">Please wait while we fetch your payment details</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status"><span className="visually-hidden">Loading…</span></div></div>;
   }
 
   if (error || !payment) {
     return (
-      <div className="container-fluid">
-        <div className="row justify-content-center">
-          <div className="col-md-6">
-            <div className="card border-0 shadow-lg mt-5">
-              <div className="card-body text-center py-5">
-                <i className="fas fa-exclamation-triangle text-warning mb-3" style={{ fontSize: '5rem' }}></i>
-                <h4 className="mb-2 text-warning">Receipt Not Found</h4>
-                <p className="text-muted mb-4">
-                  {error || 'Unable to find the payment receipt. Please check the reference number.'}
-                </p>
-                <div className="d-flex gap-2 justify-content-center">
-                  <Link href="/admin/dashboard/student-portal/payments/history" className="btn btn-primary">
-                    <i className="fas fa-history me-2"></i>
-                    Payment History
-                  </Link>
-                  <Link href="/admin/dashboard/student-portal/payments" className="btn btn-outline-secondary">
-                    <i className="fas fa-arrow-left me-2"></i>
-                    Back to Payments
-                  </Link>
-                </div>
-              </div>
+      <div className={s.wrap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
+        <div className={s.centeredCard} style={{ width: '100%' }}>
+          <div style={{ padding: '3rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '3rem', color: '#d97706', marginBottom: '1rem' }}><i className="fas fa-exclamation-triangle" /></div>
+            <h4 style={{ fontWeight: 700, color: '#1e293b', marginBottom: '0.5rem' }}>Receipt Not Found</h4>
+            <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>{error || 'Unable to find this payment receipt.'}</p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+              <Link href="/admin/dashboard/student-portal/payments/history" className={s.btnPrimary}><i className="fas fa-history" />Payment History</Link>
+              <Link href="/admin/dashboard/student-portal/payments" className={s.btnOutline}><i className="fas fa-arrow-left" />Back</Link>
             </div>
           </div>
         </div>
@@ -192,248 +98,129 @@ export default function PaymentReceiptPage() {
   }
 
   return (
-    <div className="container-fluid">
+    <div className={s.wrap}>
       {/* Header */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="d-flex justify-content-between align-items-center">
-            <div>
-              <h2 className="mb-1">Payment Receipt</h2>
-              <p className="text-muted mb-0">Transaction Reference: <code>{reference}</code></p>
-            </div>
-            <div className="d-flex gap-2">
-              <Link href="/admin/dashboard/student-portal/payments/history" className="btn btn-outline-secondary">
-                <i className="fas fa-history me-2"></i>
-                Payment History
-              </Link>
-              <button 
-                className="btn btn-outline-primary"
-                onClick={handlePreviewInvoice}
-                disabled={loading}
-              >
-                <i className="fas fa-eye me-2"></i>
-                Preview Receipt
-              </button>
-              <button 
-                className="btn btn-success"
-                onClick={handleDownloadInvoice}
-                disabled={downloadingInvoice}
-              >
-                {downloadingInvoice ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Downloading...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-download me-2"></i>
-                    Download PDF
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
+      <div className={s.pageHeader}>
+        <div>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#f0fdf4', color: '#059669' }}><i className="fas fa-receipt" /></span>
+            Payment Receipt
+          </h1>
+          <p className={s.pageSub}>Reference: <code style={{ color: '#2563eb', fontSize: '0.85rem' }}>{reference}</code></p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Link href="/admin/dashboard/student-portal/payments/history" className={s.btnOutline}><i className="fas fa-history" />History</Link>
+          <button className={s.btnOutline} onClick={handlePreview} disabled={loading}><i className="fas fa-eye" />Preview</button>
+          <button className={s.btnGreen} onClick={handleDownload} disabled={downloadingInvoice}>
+            {downloadingInvoice ? <><span className="spinner-border spinner-border-sm" />Downloading…</> : <><i className="fas fa-download" />Download PDF</>}
+          </button>
         </div>
       </div>
 
-      {/* Receipt Details */}
+      {/* Receipt card */}
       <div className="row justify-content-center">
-        <div className="col-md-8">
-          <div className="card border-0 shadow-lg">
-            {/* Receipt Header */}
-            <div className="card-header bg-gradient-primary text-white text-center py-4">
-              <i className="fas fa-receipt mb-3" style={{ fontSize: '4rem' }}></i>
-              <h3 className="mb-2">Payment Receipt</h3>
-              <p className="mb-0 opacity-75">DeepFlux Academy</p>
+        <div className="col-lg-8">
+          <div className={s.card}>
+            <div className={s.navyBanner}>
+              <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}><i className="fas fa-receipt" /></div>
+              <h3 style={{ fontWeight: 700, margin: '0 0 0.3rem' }}>Payment Receipt</h3>
+              <p style={{ margin: 0, opacity: 0.75, fontSize: '0.9rem' }}>DeepFlux Academy</p>
             </div>
-            
-            <div className="card-body p-4">
-              {/* Payment Status */}
-              <div className="text-center mb-4">
-                {getStatusBadge(payment.payment_status)}
+
+            <div style={{ padding: '2rem' }}>
+              {/* Status */}
+              <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                <PayBadge status={payment.payment_status} />
               </div>
 
-              {/* Payment Details */}
-              <div className="row mb-4">
+              {/* Details */}
+              <div className="row g-3 mb-4">
                 <div className="col-md-6">
-                  <div className="card bg-light">
-                    <div className="card-body">
-                      <h6 className="card-title text-primary">
-                        <i className="fas fa-info-circle me-2"></i>
-                        Payment Information
-                      </h6>
-                      <div className="mb-2">
-                        <small className="text-muted d-block">Amount:</small>
-                        <strong className="fs-5 text-success">
-                          ₦{parseFloat(payment.amount || 0).toLocaleString()}
-                        </strong>
-                      </div>
-                      <div className="mb-2">
-                        <small className="text-muted d-block">Reference:</small>
-                        <code className="text-primary">{payment.transaction_reference}</code>
-                      </div>
-                      <div className="mb-2">
-                        <small className="text-muted d-block">Payment Method:</small>
-                        <span className="badge bg-light text-dark">
-                          <i className="fas fa-credit-card me-1"></i>
-                          {payment.payment_method || 'Card Payment'}
-                        </span>
-                      </div>
-                      <div className="mb-0">
-                        <small className="text-muted d-block">Date:</small>
-                        <span>{formatDate(payment.created_at)}</span>
-                      </div>
+                  <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1.25rem', border: '1px solid #e5eaf2' }}>
+                    <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <i className="fas fa-info-circle" style={{ color: '#2563eb' }} />Payment Information
                     </div>
+                    {[
+                      ['Amount', <strong style={{ color: '#059669', fontSize: '1.1rem' }}>₦{parseFloat(payment.amount || 0).toLocaleString()}</strong>],
+                      ['Reference', <code style={{ fontSize: '0.75rem', color: '#2563eb' }}>{payment.transaction_reference}</code>],
+                      ['Method', <span className={`${s.badge} ${s.badgeDraft}`}><i className="fas fa-credit-card" />{payment.payment_method || 'Card'}</span>],
+                      ['Date', fmt(payment.created_at)],
+                    ].map(([label, value]) => (
+                      <div key={label} className={s.infoRow}>
+                        <span className={s.infoLabel}>{label}</span>
+                        <span>{value}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                
+
                 <div className="col-md-6">
-                  <div className="card bg-light">
-                    <div className="card-body">
-                      <h6 className="card-title text-primary">
-                        <i className="fas fa-user me-2"></i>
-                        Applicant Information
-                      </h6>
-                      <div className="mb-2">
-                        <small className="text-muted d-block">Name:</small>
-                        <strong>{payment.applicant?.first_name} {payment.applicant?.last_name}</strong>
-                      </div>
-                      <div className="mb-2">
-                        <small className="text-muted d-block">Email:</small>
-                        <span>{payment.applicant?.email}</span>
-                      </div>
-                      <div className="mb-2">
-                        <small className="text-muted d-block">Phone:</small>
-                        <span>{payment.applicant?.phone || 'Not provided'}</span>
-                      </div>
-                      <div className="mb-0">
-                        <small className="text-muted d-block">Application ID:</small>
-                        <code>{payment.applicant_id}</code>
-                      </div>
+                  <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1.25rem', border: '1px solid #e5eaf2' }}>
+                    <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <i className="fas fa-user" style={{ color: '#2563eb' }} />Applicant Information
                     </div>
+                    {[
+                      ['Name', `${payment.applicant?.first_name || ''} ${payment.applicant?.last_name || ''}`.trim() || '—'],
+                      ['Email', payment.applicant?.email || '—'],
+                      ['Phone', payment.applicant?.phone || '—'],
+                      ['Application ID', <code style={{ fontSize: '0.75rem', color: '#2563eb' }}>{payment.applicant_id}</code>],
+                    ].map(([label, value]) => (
+                      <div key={label} className={s.infoRow}>
+                        <span className={s.infoLabel}>{label}</span>
+                        <span style={{ fontWeight: 500 }}>{value}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
 
-              {/* Additional Payment Details */}
               {payment.paystack_reference && (
-                <div className="alert alert-info mb-4">
-                  <h6 className="mb-2">
-                    <i className="fas fa-shield-alt me-2"></i>
-                    Payment Gateway Information
-                  </h6>
-                  <div className="row">
-                    <div className="col-md-6">
-                      <small className="text-muted d-block">Paystack Reference:</small>
-                      <code>{payment.paystack_reference}</code>
+                <div className={`${s.alertInfo} mb-4`}>
+                  <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}><i className="fas fa-shield-alt me-2" />Payment Gateway</div>
+                  <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', fontSize: '0.875rem' }}>
+                    <div>
+                      <div style={{ color: '#6b7280', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Paystack Ref</div>
+                      <code style={{ color: '#2563eb' }}>{payment.paystack_reference}</code>
                     </div>
-                    <div className="col-md-6">
-                      <small className="text-muted d-block">Gateway:</small>
-                      <span className="badge bg-primary">Paystack</span>
+                    <div>
+                      <div style={{ color: '#6b7280', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Gateway</div>
+                      <span className={`${s.badge} ${s.badgeInfo}`}>Paystack</span>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div className="d-grid gap-2 d-md-flex justify-content-md-center">
-                <button 
-                  className="btn btn-success btn-lg"
-                  onClick={handleDownloadInvoice}
-                  disabled={downloadingInvoice}
-                >
-                  {downloadingInvoice ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                      Downloading...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-download me-2"></i>
-                      Download PDF Receipt
-                    </>
-                  )}
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button className={s.btnGreen} onClick={handleDownload} disabled={downloadingInvoice}>
+                  {downloadingInvoice ? <><span className="spinner-border spinner-border-sm" />Downloading…</> : <><i className="fas fa-download" />Download PDF</>}
                 </button>
-                
-                <button 
-                  className="btn btn-outline-primary btn-lg"
-                  onClick={handlePreviewInvoice}
-                  disabled={loading}
-                >
-                  <i className="fas fa-eye me-2"></i>
-                  Preview Receipt
-                </button>
+                <button className={s.btnOutline} onClick={handlePreview} disabled={loading}><i className="fas fa-eye" />Preview</button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* PDF Preview Modal */}
+      {/* Preview modal */}
       {showPreview && previewData && (
-        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-xl">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  <i className="fas fa-file-pdf me-2"></i>
-                  Receipt Preview
-                </h5>
-                <button 
-                  type="button" 
-                  className="btn-close" 
-                  onClick={closePreview}
-                ></button>
-              </div>
-              <div className="modal-body p-0">
-                <iframe
-                  src={previewData.pdf}
-                  width="100%"
-                  height="600px"
-                  style={{ border: 'none' }}
-                  title="Receipt Preview"
-                />
-              </div>
-              <div className="modal-footer">
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={closePreview}
-                >
-                  Close
-                </button>
-                <button 
-                  type="button" 
-                  className="btn btn-success"
-                  onClick={handleDownloadInvoice}
-                  disabled={downloadingInvoice}
-                >
-                  {downloadingInvoice ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                      Downloading...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-download me-2"></i>
-                      Download PDF
-                    </>
-                  )}
-                </button>
-              </div>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}>
+          <div style={{ background: '#fff', borderRadius: '14px', width: '90%', maxWidth: '900px', overflow: 'hidden' }}>
+            <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #e5eaf2', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700 }}><i className="fas fa-file-pdf me-2" style={{ color: '#dc2626' }} />Receipt Preview</span>
+              <button className={s.btnOutline} style={{ padding: '0.3rem 0.75rem' }} onClick={() => { setShowPreview(false); setPreviewData(null); }}>
+                <i className="fas fa-times" />Close
+              </button>
+            </div>
+            <iframe src={previewData.pdf} width="100%" height="600px" style={{ border: 'none', display: 'block' }} title="Receipt Preview" />
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e5eaf2', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button className={s.btnOutline} onClick={() => { setShowPreview(false); setPreviewData(null); }}>Close</button>
+              <button className={s.btnGreen} onClick={handleDownload} disabled={downloadingInvoice}>
+                {downloadingInvoice ? <><span className="spinner-border spinner-border-sm" />Downloading…</> : <><i className="fas fa-download" />Download PDF</>}
+              </button>
             </div>
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        .bg-gradient-primary {
-          background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-        }
-        .modal.show {
-          display: block !important;
-        }
-      `}</style>
     </div>
   );
 }

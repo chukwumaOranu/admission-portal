@@ -1,327 +1,170 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications, usePayments, useEmployees, useExams } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
 
-function StatCard({ title, value, icon, color, subtitle }) {
-  return (
-    <div className="col-md-3 mb-4">
-      <div className="card border-0 shadow-sm h-100">
-        <div className="card-body">
-          <div className="d-flex justify-content-between align-items-start">
-            <div>
-              <p className="text-muted small text-uppercase fw-medium mb-1">{title}</p>
-              <h3 className="fw-bold text-dark mb-2">{value.toLocaleString()}</h3>
-              {subtitle && <small className="text-muted">{subtitle}</small>}
-            </div>
-            <div className={`text-${color} fs-1 opacity-75`}>
-              <i className={icon}></i>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+const money = (v) => `₦${parseFloat(v || 0).toLocaleString()}`;
 
 export default function AnalyticsPage() {
-  const { status } = useSession();
-  const { loading: permissionsLoading } = usePermissions();
-  
-  // Fetch real data from Redux stores
+  const { data: session, status } = useSession();
   const { applications, loading: appsLoading, fetchApplications } = useApplications();
   const { payments, loading: paymentsLoading, fetchPayments } = usePayments();
-  const { employees, loading: employeesLoading, fetchEmployees } = useEmployees();
+  const { employees, loading: empLoading, fetchEmployees } = useEmployees();
   const { entryDates, loading: examsLoading, fetchEntryDates } = useExams();
+  const loadedRef = useRef(false);
 
-  const [isLoading, setIsLoading] = useState(true);
-
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchApplications();
-      fetchPayments();
-      fetchEmployees();
-      fetchEntryDates();
-      
-      // Set loading to false after a brief delay for data to be fetched
-      setTimeout(() => setIsLoading(false), 500);
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true;
+      fetchApplications(); fetchPayments(); fetchEmployees(); fetchEntryDates();
     }
-  }, [status, fetchApplications, fetchPayments, fetchEmployees, fetchEntryDates]);
+  }, [status, session?.user?.id, fetchApplications, fetchPayments, fetchEmployees, fetchEntryDates]);
 
-  // Calculate analytics from real data
-  const analytics = {
-    applications: {
-      total: applications.length,
-      pending: applications.filter(a => a.status === 'pending' || a.status === 'submitted').length,
-      approved: applications.filter(a => a.status === 'approved' || a.status === 'accepted').length,
-      rejected: applications.filter(a => a.status === 'rejected' || a.status === 'declined').length
-    },
-    payments: {
-      total: payments.length,
-      successful: payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').length,
-      failed: payments.filter(p => p.payment_status === 'failed').length,
-      pending: payments.filter(p => p.payment_status === 'pending').length
-    },
-    employees: {
-      total: employees.length,
-      active: employees.filter(e => e?.status === 'active').length,
-      inactive: employees.filter(e => e?.status !== 'active').length
-    },
-    exams: {
-      totalDates: entryDates.length,
-      upcoming: entryDates.filter(e => new Date(e.exam_date) > new Date()).length,
-      completed: entryDates.filter(e => new Date(e.exam_date) < new Date()).length
-    }
-  };
+  const loading = status === 'loading' || appsLoading || paymentsLoading || empLoading || examsLoading;
 
-  const loading = isLoading || appsLoading || paymentsLoading || employeesLoading || examsLoading || permissionsLoading || status === 'loading';
+  const totalRevenue = payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+  const approvalRate = applications.length ? Math.round((applications.filter(a => a.status === 'approved').length / applications.length) * 100) : 0;
+  const paymentRate  = payments.length ? Math.round((payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').length / payments.length) * 100) : 0;
 
-  // Show loading while checking authentication and permissions
-  if (loading || status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
-  }
+  const SECTIONS = [
+    {
+      title: 'Applications', icon: 'fas fa-file-alt', color: '#2563eb', bg: '#eff6ff',
+      stats: [
+        { label: 'Total',        value: applications.length,                                              icon: 'fas fa-file-alt',    color: '#2563eb' },
+        { label: 'Pending',      value: applications.filter(a => a.status === 'submitted' || a.status === 'pending').length, icon: 'fas fa-clock',       color: '#d97706' },
+        { label: 'Approved',     value: applications.filter(a => a.status === 'approved').length,         icon: 'fas fa-check-circle',color: '#059669' },
+        { label: 'Rejected',     value: applications.filter(a => a.status === 'rejected').length,         icon: 'fas fa-times-circle',color: '#dc2626' },
+      ],
+      link: '/admin/dashboard/applications', linkLabel: 'Manage Applications',
+      extra: <div style={{ display: 'flex', gap: '1.5rem', padding: '0.875rem 1.25rem', borderTop: '1px solid #f0f4f8', fontSize: '0.82rem', color: '#6b7280' }}><span>Approval rate: <strong style={{ color: '#059669' }}>{approvalRate}%</strong></span></div>,
+    },
+    {
+      title: 'Payments', icon: 'fas fa-credit-card', color: '#059669', bg: '#d1fae5',
+      stats: [
+        { label: 'Total',        value: payments.length,                                                   icon: 'fas fa-credit-card',  color: '#059669' },
+        { label: 'Successful',   value: payments.filter(p => p.payment_status === 'success' || p.payment_status === 'paid').length, icon: 'fas fa-check-double', color: '#059669' },
+        { label: 'Pending',      value: payments.filter(p => p.payment_status === 'pending').length,       icon: 'fas fa-hourglass-half',color: '#d97706' },
+        { label: 'Failed',       value: payments.filter(p => p.payment_status === 'failed').length,        icon: 'fas fa-times',        color: '#dc2626' },
+      ],
+      link: '/admin/dashboard/payments', linkLabel: 'View Payments',
+      extra: <div style={{ display: 'flex', gap: '1.5rem', padding: '0.875rem 1.25rem', borderTop: '1px solid #f0f4f8', fontSize: '0.82rem', color: '#6b7280' }}><span>Success rate: <strong style={{ color: '#059669' }}>{paymentRate}%</strong></span><span>Total revenue: <strong style={{ color: '#059669' }}>{money(totalRevenue)}</strong></span></div>,
+    },
+    {
+      title: 'Employees', icon: 'fas fa-users', color: '#0891b2', bg: '#e0f2fe',
+      stats: [
+        { label: 'Total',        value: employees.filter(Boolean).length,                              icon: 'fas fa-users',        color: '#0891b2' },
+        { label: 'Active',       value: employees.filter(e => e?.status === 'active').length,          icon: 'fas fa-user-check',   color: '#059669' },
+        { label: 'Inactive',     value: employees.filter(e => e?.status !== 'active').length,          icon: 'fas fa-user-slash',   color: '#64748b' },
+        { label: 'With Login',   value: employees.filter(e => e?.user_id).length,                     icon: 'fas fa-user-lock',    color: '#7c3aed' },
+      ],
+      link: '/admin/dashboard/employees', linkLabel: 'Manage Employees',
+    },
+    {
+      title: 'Exams', icon: 'fas fa-clipboard-check', color: '#d97706', bg: '#fef3c7',
+      stats: [
+        { label: 'Total Dates',  value: entryDates.length,                                             icon: 'fas fa-calendar',     color: '#d97706' },
+        { label: 'Upcoming',     value: entryDates.filter(e => new Date(e.exam_date) > new Date()).length, icon: 'fas fa-clock',     color: '#0891b2' },
+        { label: 'Completed',    value: entryDates.filter(e => new Date(e.exam_date) < new Date()).length, icon: 'fas fa-check',     color: '#059669' },
+        { label: 'Reg. Open',    value: entryDates.filter(e => e.registration_open).length,            icon: 'fas fa-door-open',    color: '#7c3aed' },
+      ],
+      link: '/admin/dashboard/exams/entry-dates', linkLabel: 'Manage Exams',
+    },
+  ];
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-chart-line text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-chart-line" /></span>
             Analytics Dashboard
-          </h2>
-          <p className="text-muted mb-0">Comprehensive analytics and insights for the admission portal</p>
+          </h1>
+          <p className={s.pageSub}>Comprehensive insights across all portal modules</p>
         </div>
-        <div className="d-flex gap-2">
-          <button className="btn btn-outline-primary">
-            <i className="fas fa-download me-2"></i>
-            Export Report
-          </button>
-          <button className="btn btn-primary-custom">
-            <i className="fas fa-sync me-2"></i>
-            Refresh Data
+        <div className={s.pageActions}>
+          <button onClick={() => { fetchApplications(); fetchPayments(); fetchEmployees(); fetchEntryDates(); }} className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-sync" />Refresh
           </button>
         </div>
       </div>
 
-      {/* Applications Analytics */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-file-alt me-2"></i>
-                Application Analytics
-              </h5>
+      {/* Overview strip */}
+      <div className={s.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Applications',  value: applications.length,                                     icon: 'fas fa-file-alt',    color: '#2563eb' },
+          { label: 'Revenue',       value: money(totalRevenue),                                     icon: 'fas fa-credit-card', color: '#059669', isText: true },
+          { label: 'Employees',     value: employees.filter(Boolean).length,                        icon: 'fas fa-users',       color: '#0891b2' },
+          { label: 'Exam Dates',    value: entryDates.length,                                       icon: 'fas fa-calendar',    color: '#d97706' },
+        ].map(st => (
+          <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+            <div className={s.statInfo}>
+              <div className={s.statLabel}>{st.label}</div>
+              <div className={s.statNumber} style={{ color: st.color, fontSize: st.isText ? '1.1rem' : undefined }}>{st.value}</div>
             </div>
-            <div className="card-body">
-              <div className="row">
-                <StatCard
-                  title="Total Applications"
-                  value={analytics.applications.total}
-                  icon="fas fa-file-alt"
-                  color="info"
-                  subtitle="All time"
-                />
-                <StatCard
-                  title="Pending Review"
-                  value={analytics.applications.pending}
-                  icon="fas fa-clock"
-                  color="warning"
-                  subtitle="Awaiting review"
-                />
-                <StatCard
-                  title="Approved"
-                  value={analytics.applications.approved}
-                  icon="fas fa-check-circle"
-                  color="success"
-                  subtitle="Successfully approved"
-                />
-                <StatCard
-                  title="Rejected"
-                  value={analytics.applications.rejected}
-                  icon="fas fa-times-circle"
-                  color="danger"
-                  subtitle="Not approved"
-                />
-              </div>
-            </div>
+            <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Payment Analytics */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-success text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-credit-card me-2"></i>
-                Payment Analytics
-              </h5>
+      {/* Section cards */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        {SECTIONS.map(section => (
+          <div key={section.title} className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader} style={{ justifyContent: 'space-between' }}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: section.bg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: section.color, flexShrink: 0 }}>
+                  <i className={section.icon} style={{ fontSize: '0.75rem' }} />
+                </span>
+                {section.title}
+              </span>
+              <Link href={section.link} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}>
+                <i className="fas fa-arrow-right" />{section.linkLabel}
+              </Link>
             </div>
-            <div className="card-body">
-              <div className="row">
-                <StatCard
-                  title="Total Payments"
-                  value={analytics.payments.total}
-                  icon="fas fa-credit-card"
-                  color="success"
-                  subtitle="All transactions"
-                />
-                <StatCard
-                  title="Successful"
-                  value={analytics.payments.successful}
-                  icon="fas fa-check-double"
-                  color="success"
-                  subtitle="Completed payments"
-                />
-                <StatCard
-                  title="Failed"
-                  value={analytics.payments.failed}
-                  icon="fas fa-times"
-                  color="danger"
-                  subtitle="Failed transactions"
-                />
-                <StatCard
-                  title="Pending"
-                  value={analytics.payments.pending}
-                  icon="fas fa-hourglass-half"
-                  color="warning"
-                  subtitle="In progress"
-                />
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
+                {section.stats.map(st => (
+                  <div key={st.label} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                      <i className={st.icon} style={{ color: st.color, fontSize: '0.7rem' }} />
+                      {st.label}
+                    </div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: st.color, lineHeight: 1 }}>{st.value.toLocaleString()}</div>
+                  </div>
+                ))}
               </div>
             </div>
+            {section.extra}
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Employee & Exam Analytics */}
-      <div className="row">
-        <div className="col-md-6 mb-4">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-primary text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-users me-2"></i>
-                Employee Analytics
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-6">
-                  <StatCard
-                    title="Total Employees"
-                    value={analytics.employees.total}
-                    icon="fas fa-users"
-                    color="primary"
-                  />
-                </div>
-                <div className="col-6">
-                  <StatCard
-                    title="Active"
-                    value={analytics.employees.active}
-                    icon="fas fa-user-check"
-                    color="success"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+      {/* Quick actions */}
+      <div className={s.card} style={{ marginTop: '1.25rem', marginBottom: 0 }}>
+        <div className={s.cardHeader}>
+          <span className={s.cardTitle}><i className="fas fa-bolt" style={{ color: '#d97706' }} />Quick Actions</span>
         </div>
-        <div className="col-md-6 mb-4">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-warning text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-clipboard-check me-2"></i>
-                Exam Analytics
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-6">
-                  <StatCard
-                    title="Total Dates"
-                    value={analytics.exams.totalDates}
-                    icon="fas fa-calendar"
-                    color="warning"
-                  />
-                </div>
-                <div className="col-6">
-                  <StatCard
-                    title="Upcoming"
-                    value={analytics.exams.upcoming}
-                    icon="fas fa-clock"
-                    color="info"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-secondary text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-bolt me-2"></i>
-                Quick Actions
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-3 mb-2">
-                  <Link href="/admin/dashboard/applications" className="btn btn-outline-info w-100">
-                    <i className="fas fa-file-alt me-2"></i>
-                    View Applications
-                  </Link>
-                </div>
-                <div className="col-md-3 mb-2">
-                  <Link href="/admin/dashboard/payments" className="btn btn-outline-success w-100">
-                    <i className="fas fa-credit-card me-2"></i>
-                    View Payments
-                  </Link>
-                </div>
-                <div className="col-md-3 mb-2">
-                  <Link href="/admin/dashboard/employees" className="btn btn-outline-primary w-100">
-                    <i className="fas fa-users me-2"></i>
-                    Manage Employees
-                  </Link>
-                </div>
-                <div className="col-md-3 mb-2">
-                  <Link href="/admin/dashboard/exams" className="btn btn-outline-warning w-100">
-                    <i className="fas fa-clipboard-check me-2"></i>
-                    Manage Exams
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className={s.cardBody} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.75rem' }}>
+          {[
+            { label: 'Review Applications', href: '/admin/dashboard/applications/review',   icon: 'fas fa-clipboard-check', color: '#2563eb' },
+            { label: 'Verify Payments',     href: '/admin/dashboard/payments',              icon: 'fas fa-credit-card',     color: '#059669' },
+            { label: 'Assign Exams',        href: '/admin/dashboard/exams/assign',          icon: 'fas fa-calendar-check',  color: '#d97706' },
+            { label: 'Admission Results',   href: '/admin/dashboard/applications/admission',icon: 'fas fa-graduation-cap',  color: '#7c3aed' },
+          ].map(a => (
+            <Link key={a.label} href={a.href} className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start', gap: '0.5rem' }}>
+              <i className={a.icon} style={{ color: a.color }} />{a.label}
+            </Link>
+          ))}
         </div>
       </div>
     </div>

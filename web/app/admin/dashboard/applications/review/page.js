@@ -1,391 +1,277 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useApplications } from '@/hooks/useRedux';
-import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
+
+const STATUS_MAP = {
+  pending:      { label: 'Pending',      cls: s.badgePending },
+  submitted:    { label: 'Submitted',    cls: s.badgeSubmitted },
+  under_review: { label: 'Under Review', cls: s.badgeReview },
+  approved:     { label: 'Approved',     cls: s.badgeApproved },
+  rejected:     { label: 'Rejected',     cls: s.badgeRejected },
+};
+const PAY_MAP = {
+  paid:    { label: 'Paid',    cls: s.badgePaid },
+  pending: { label: 'Pending', cls: s.badgePending },
+};
+
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const fmtLong = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+const initials = (name) => (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+const FILTERS = [
+  { key: 'all',          label: 'All' },
+  { key: 'submitted',    label: 'Submitted' },
+  { key: 'pending',      label: 'Pending' },
+  { key: 'under_review', label: 'Under Review' },
+  { key: 'approved',     label: 'Approved' },
+  { key: 'rejected',     label: 'Rejected' },
+];
 
 export default function ReviewApplicationsPage() {
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state and actions
-  const {
-    applications: allApplications,
-    loading,
-    error: reduxError,
-    fetchApplications,
-    updateApplicationStatus
-  } = useApplications();
-  
-  const [filter, setFilter] = useState('pending');
-  const [selectedApp, setSelectedApp] = useState(null);
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { applications: all, loading, error, fetchApplications, updateApplicationStatus } = useApplications();
+
+  const [filter, setFilter]   = useState('all');
+  const [search, setSearch]   = useState('');
+  const [selected, setSelected] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [actionType, setActionType] = useState(null);
-  const [error, setError] = useState('');
+  const [notice, setNotice]   = useState('');
+  const loadedRef = useRef(false);
 
-  // Filter applications by status
-  const applications = filter === 'all' 
-    ? allApplications 
-    : allApplications.filter(app => app.status === filter);
-
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchApplications();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchApplications();
     }
-  }, [status, fetchApplications]);
+  }, [status, session?.user?.id, fetchApplications]);
 
-  const handleViewDetails = (app) => {
-    setSelectedApp(app);
-    setShowModal(true);
+  const counts = FILTERS.reduce((acc, f) => {
+    acc[f.key] = f.key === 'all' ? all.length : all.filter(a => a.status === f.key).length;
+    return acc;
+  }, {});
+
+  const base = filter === 'all' ? all : all.filter(a => a.status === filter);
+  const filtered = base.filter(a => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return [a.applicant_name, a.applicant_email, a.application_number].filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
+
+  const handleApprove = (id) => {
+    if (!window.confirm('Approve this application?')) return;
+    updateApplicationStatus(id, 'approved');
+    setNotice('Application approved.'); setShowModal(false);
   };
 
-  const handleApprove = async (appId) => {
-    if (!confirm('Are you sure you want to approve this application?')) return;
-    
-    try {
-      setActionLoading(true);
-      setActionType('approve');
-      
-      await updateApplicationStatus(appId, 'approved');
-      
-      alert('Application approved successfully!');
-      setShowModal(false);
-    } catch (err) {
-      console.error('Error approving application:', err);
-      alert('Failed to approve application');
-    } finally {
-      setActionLoading(false);
-      setActionType(null);
-    }
+  const handleReject = (id) => {
+    if (!window.confirm('Reject this application?')) return;
+    updateApplicationStatus(id, 'rejected');
+    setNotice('Application rejected.'); setShowModal(false);
   };
 
-  const handleReject = async (appId) => {
-    const reason = prompt('Please provide a reason for rejection:');
-    if (!reason) return;
-    
-    try {
-      setActionLoading(true);
-      setActionType('reject');
-      
-      await updateApplicationStatus(appId, 'rejected');
-      
-      alert('Application rejected');
-      setShowModal(false);
-    } catch (err) {
-      console.error('Error rejecting application:', err);
-      alert('Failed to reject application');
-    } finally {
-      setActionLoading(false);
-      setActionType(null);
-    }
-  };
-
-  const getStatusBadge = (status) => {
-    const badges = {
-      'pending': { color: 'warning', icon: 'clock', text: 'Pending Review' },
-      'approved': { color: 'success', icon: 'check-circle', text: 'Approved' },
-      'rejected': { color: 'danger', icon: 'times-circle', text: 'Rejected' }
-    };
-    
-    const badge = badges[status] || badges['pending'];
-    
-    return (
-      <span className={`badge bg-${badge.color}`}>
-        <i className={`fas fa-${badge.icon} me-1`}></i>
-        {badge.text}
-      </span>
-    );
-  };
-
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="container-fluid">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-clipboard-check text-primary me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-clipboard-check" /></span>
             Review Applications
-          </h2>
-          <p className="text-muted mb-0">Review and process student applications</p>
+          </h1>
+          <p className={s.pageSub}>Process student applications across all statuses</p>
+        </div>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/applications" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Applications
+          </Link>
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="card border-0 shadow-sm mb-4">
-        <div className="card-body">
-          <div className="btn-group w-100" role="group">
-            <button
-              className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-outline-primary'}`}
-              onClick={() => setFilter('all')}
-            >
-              All
-            </button>
-            <button
-              className={`btn ${filter === 'pending' ? 'btn-warning' : 'btn-outline-warning'}`}
-              onClick={() => setFilter('pending')}
-            >
-              Pending
-            </button>
-            <button
-              className={`btn ${filter === 'approved' ? 'btn-success' : 'btn-outline-success'}`}
-              onClick={() => setFilter('approved')}
-            >
-              Approved
-            </button>
-            <button
-              className={`btn ${filter === 'rejected' ? 'btn-danger' : 'btn-outline-danger'}`}
-              onClick={() => setFilter('rejected')}
-            >
-              Rejected
-            </button>
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#059669' }}><i className="fas fa-times" /></button></div>}
+
+      {/* Main card */}
+      <div className={s.card} style={{ marginBottom: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', padding: '0.875rem 1.25rem', borderBottom: '1px solid #f0f4f8', gap: '0.75rem' }}>
+          <div className={s.filterBar} style={{ padding: 0, borderBottom: 'none', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+            {FILTERS.map(f => (
+              <button key={f.key} onClick={() => setFilter(f.key)} className={`${s.filterPill} ${filter === f.key ? s.filterPillActive : ''}`}>
+                {f.label}<span className={s.filterCount}>{counts[f.key] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+          <div className={s.searchWrap} style={{ maxWidth: 220 }}>
+            <i className={`fas fa-search ${s.searchIcon}`} />
+            <input className={s.searchInput} placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
-      </div>
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-danger">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-        </div>
-      )}
-
-      {/* Applications Table */}
-      {applications.length === 0 ? (
-        <div className="card border-0 shadow-sm">
-          <div className="card-body text-center py-5">
-            <i className="fas fa-inbox text-muted" style={{ fontSize: '4rem' }}></i>
-            <h5 className="mt-3 text-muted">No Applications Found</h5>
-            <p className="text-muted">
-              {filter === 'all' 
-                ? "No applications submitted yet" 
-                : `No ${filter} applications`}
-            </p>
+        {loading ? (
+          <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+        ) : filtered.length === 0 ? (
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-inbox" /></div>
+            <div className={s.emptyTitle}>No Applications Found</div>
+            <p className={s.emptySub}>{filter === 'all' ? 'No applications submitted yet.' : `No ${filter} applications.`}</p>
           </div>
-        </div>
-      ) : (
-        <div className="card border-0 shadow-sm">
-          <div className="card-body p-0">
-            <div className="table-responsive">
-              <table className="table table-hover mb-0">
-                <thead className="table-light">
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className={s.tableWrap}>
+              <table className={s.table}>
+                <thead>
                   <tr>
-                    <th>Application ID</th>
+                    <th style={{ paddingLeft: '1.25rem' }}>App ID</th>
                     <th>Applicant</th>
                     <th>Program</th>
-                    <th>Submitted</th>
                     <th>Payment</th>
                     <th>Status</th>
-                    <th>Actions</th>
+                    <th>Submitted</th>
+                    <th style={{ paddingRight: '1.25rem' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {applications.map((app) => (
-                    <tr key={app.id}>
-                      <td>
-                        <code>{app.application_id || `APP${app.id}`}</code>
-                      </td>
-                      <td>
-                        <div>
-                          <div className="fw-medium">{app.applicant_name}</div>
-                          <small className="text-muted">{app.applicant_email}</small>
-                        </div>
-                      </td>
-                      <td>{app.schema_display_name || app.schema_name}</td>
-                      <td>
-                        <div className="small">
-                          {new Date(app.created_at).toLocaleDateString()}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge bg-${app.payment_status === 'paid' ? 'success' : 'warning'}`}>
-                          {app.payment_status === 'paid' ? 'Paid' : 'Pending'}
-                        </span>
-                      </td>
-                      <td>{getStatusBadge(app.status)}</td>
-                      <td>
-                        <div className="d-flex gap-1">
-                          <button
-                            className="btn btn-sm btn-outline-primary"
-                            onClick={() => handleViewDetails(app)}
-                          >
-                            <i className="fas fa-eye"></i>
-                          </button>
-                          
-                          {app.status === 'pending' && hasPermission('application.update') && (
-                            <>
-                              <button
-                                className="btn btn-sm btn-success"
-                                onClick={() => handleApprove(app.id)}
-                                disabled={actionLoading}
-                              >
-                                <i className="fas fa-check"></i>
-                              </button>
-                              <button
-                                className="btn btn-sm btn-danger"
-                                onClick={() => handleReject(app.id)}
-                                disabled={actionLoading}
-                              >
-                                <i className="fas fa-times"></i>
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.map(app => {
+                    const st = STATUS_MAP[app.status] || STATUS_MAP.pending;
+                    const py = PAY_MAP[app.payment_status] || PAY_MAP.pending;
+                    return (
+                      <tr key={app.id}>
+                        <td style={{ paddingLeft: '1.25rem' }}><span className={s.tdMono}>{app.application_number || `APP-${app.id}`}</span></td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                            <div>
+                              <div className={s.tdName}>{app.applicant_name || 'Unknown'}</div>
+                              <div className={s.tdEmail}>{app.applicant_email || '—'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td><span style={{ fontSize: '0.85rem', color: '#374151' }}>{app.schema_display_name || app.schema_name || 'N/A'}</span></td>
+                        <td><span className={`${s.badge} ${py.cls}`}>{py.label}</span></td>
+                        <td><span className={`${s.badge} ${st.cls}`}>{st.label}</span></td>
+                        <td><span style={{ fontSize: '0.82rem', color: '#374151' }}>{fmt(app.created_at)}</span></td>
+                        <td className={s.actionsCell} style={{ paddingRight: '1.25rem' }}>
+                          <div className={s.actionBtns}>
+                            <button onClick={() => { setSelected(app); setShowModal(true); }} className={s.btnIcon} title="View Details">
+                              <i className="fas fa-eye" />
+                            </button>
+                            {app.status === 'submitted' || app.status === 'pending' || app.status === 'under_review' ? (
+                              hasPermission('application.update') && (
+                                <>
+                                  <button onClick={() => handleApprove(app.id)} className={`${s.btnIcon} ${s.btnIconGreen}`} title="Approve"><i className="fas fa-check" /></button>
+                                  <button onClick={() => handleReject(app.id)} className={`${s.btnIcon} ${s.btnIconDanger}`} title="Reject"><i className="fas fa-times" /></button>
+                                </>
+                              )
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* Details Modal */}
-      {showModal && selectedApp && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg modal-dialog-scrollable">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  <i className="fas fa-file-alt me-2"></i>
-                  Application Details
-                </h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowModal(false)}
-                ></button>
-              </div>
-              <div className="modal-body">
-                {/* Applicant Info */}
-                <div className="mb-4">
-                  <h6 className="border-bottom pb-2 mb-3">Applicant Information</h6>
-                  <div className="row">
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Full Name</small>
-                      <strong>{selectedApp.applicant_name}</strong>
+            {/* Mobile cards */}
+            <div className={s.mobileList}>
+              {filtered.map(app => {
+                const st = STATUS_MAP[app.status] || STATUS_MAP.pending;
+                return (
+                  <div key={app.id} className={s.mobileCard}>
+                    <div className={s.mobileCardHead}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span className={s.tdAvatar}>{initials(app.applicant_name)}</span>
+                        <span className={s.tdName}>{app.applicant_name || 'Unknown'}</span>
+                      </div>
+                      <span className={`${s.badge} ${st.cls}`}>{st.label}</span>
                     </div>
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Email</small>
-                      <strong>{selectedApp.applicant_email}</strong>
+                    <div className={s.mobileCardBody}>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>App No.</span><span className={s.mobileCardVal}><span className={s.tdMono} style={{ fontSize: '0.72rem' }}>{app.application_number || `APP-${app.id}`}</span></span></div>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Program</span><span className={s.mobileCardVal}>{app.schema_display_name || app.schema_name || 'N/A'}</span></div>
+                      <div className={s.mobileCardRow}><span className={s.mobileCardKey}>Submitted</span><span className={s.mobileCardVal}>{fmt(app.created_at)}</span></div>
                     </div>
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Phone</small>
-                      <strong>{selectedApp.applicant_phone || 'N/A'}</strong>
-                    </div>
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Application ID</small>
-                      <code>{selectedApp.application_id || `APP${selectedApp.id}`}</code>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Program Info */}
-                <div className="mb-4">
-                  <h6 className="border-bottom pb-2 mb-3">Program Information</h6>
-                  <div className="row">
-                    <div className="col-md-12 mb-2">
-                      <small className="text-muted d-block">Program</small>
-                      <strong>{selectedApp.schema_display_name || selectedApp.schema_name}</strong>
-                    </div>
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Application Fee</small>
-                      <strong className="text-success">₦{parseFloat(selectedApp.application_fee || 0).toLocaleString()}</strong>
-                    </div>
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Payment Status</small>
-                      <span className={`badge bg-${selectedApp.payment_status === 'paid' ? 'success' : 'warning'}`}>
-                        {selectedApp.payment_status === 'paid' ? 'Paid' : 'Pending'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Application Data */}
-                {selectedApp.application_data && (
-                  <div className="mb-4">
-                    <h6 className="border-bottom pb-2 mb-3">Application Data</h6>
-                    <div className="bg-light p-3 rounded">
-                      <pre className="mb-0 small">{JSON.stringify(JSON.parse(selectedApp.application_data), null, 2)}</pre>
-                    </div>
-                  </div>
-                )}
-
-                {/* Status Info */}
-                <div className="mb-4">
-                  <h6 className="border-bottom pb-2 mb-3">Status Information</h6>
-                  <div className="row">
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Current Status</small>
-                      {getStatusBadge(selectedApp.status)}
-                    </div>
-                    <div className="col-md-6 mb-2">
-                      <small className="text-muted d-block">Submitted On</small>
-                      <strong>{new Date(selectedApp.created_at).toLocaleString()}</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="modal-footer">
-                {selectedApp.status === 'pending' && hasPermission('application.update') && (
-                  <>
-                    <button
-                      className="btn btn-success"
-                      onClick={() => handleApprove(selectedApp.id)}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading && actionType === 'approve' ? (
+                    <div className={s.mobileCardFoot}>
+                      <button onClick={() => { setSelected(app); setShowModal(true); }} className={`${s.btn} ${s.btnOutline} ${s.btnSm}`}><i className="fas fa-eye" />Details</button>
+                      {(app.status === 'submitted' || app.status === 'pending') && hasPermission('application.update') && (
                         <>
-                          <i className="fas fa-spinner fa-spin me-2"></i>
-                          Approving...
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-check me-2"></i>
-                          Approve
+                          <button onClick={() => handleApprove(app.id)} className={`${s.btn} ${s.btnGreen} ${s.btnSm}`}><i className="fas fa-check" />Approve</button>
+                          <button onClick={() => handleReject(app.id)} className={`${s.btn} ${s.btnDanger} ${s.btnSm}`}><i className="fas fa-times" />Reject</button>
                         </>
                       )}
-                    </button>
-                    <button
-                      className="btn btn-danger"
-                      onClick={() => handleReject(selectedApp.id)}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading && actionType === 'reject' ? (
-                        <>
-                          <i className="fas fa-spinner fa-spin me-2"></i>
-                          Rejecting...
-                        </>
-                      ) : (
-                        <>
-                          <i className="fas fa-times me-2"></i>
-                          Reject
-                        </>
-                      )}
-                    </button>
-                  </>
-                )}
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setShowModal(false)}
-                >
-                  Close
-                </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {filtered.length > 0 && <div className={s.cardFooter}><span>Showing <strong>{filtered.length}</strong> of <strong>{all.length}</strong> applications</span></div>}
+      </div>
+
+      {/* Detail modal */}
+      {showModal && selected && (
+        <div className={s.modalOverlay} onClick={() => setShowModal(false)}>
+          <div className={`${s.modal} ${s.modalLg}`} onClick={e => e.stopPropagation()} style={{ maxHeight: '85vh', overflowY: 'auto' }}>
+            <div className={s.modalHeader}>
+              <span className={s.modalTitle}><i className="fas fa-file-alt" style={{ color: '#2563eb' }} />Application Details</span>
+              <button className={s.modalClose} onClick={() => setShowModal(false)}><i className="fas fa-times" /></button>
+            </div>
+            <div className={s.modalBody} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Applicant */}
+              <div>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: '#9ca3af', letterSpacing: '0.5px', marginBottom: '0.75rem' }}>Applicant</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  {[['Full Name', selected.applicant_name], ['Email', selected.applicant_email], ['Phone', selected.applicant_phone || '—'], ['App ID', selected.application_number || `APP-${selected.id}`]].map(([k, v]) => (
+                    <div key={k} className={s.infoRow}><span className={s.infoLabel}>{k}</span><span className={s.infoValue}>{v || '—'}</span></div>
+                  ))}
+                </div>
               </div>
+              {/* Program */}
+              <div>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: '#9ca3af', letterSpacing: '0.5px', marginBottom: '0.75rem' }}>Program</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  {[['Program', selected.schema_display_name || selected.schema_name], ['Fee', `₦${parseFloat(selected.application_fee || 0).toLocaleString()}`], ['Payment', selected.payment_status || 'pending'], ['Submitted', fmtLong(selected.created_at)]].map(([k, v]) => (
+                    <div key={k} className={s.infoRow}><span className={s.infoLabel}>{k}</span><span className={s.infoValue}>{v || '—'}</span></div>
+                  ))}
+                </div>
+              </div>
+              {/* Status */}
+              <div className={s.infoRow}>
+                <span className={s.infoLabel}>Status</span>
+                <span className={`${s.badge} ${(STATUS_MAP[selected.status] || STATUS_MAP.pending).cls}`}>{(STATUS_MAP[selected.status] || STATUS_MAP.pending).label}</span>
+              </div>
+              {/* Application data */}
+              {selected.application_data && (() => {
+                try {
+                  const data = typeof selected.application_data === 'string' ? JSON.parse(selected.application_data) : selected.application_data;
+                  return (
+                    <div>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: '#9ca3af', letterSpacing: '0.5px', marginBottom: '0.5rem' }}>Application Data</div>
+                      <pre style={{ background: '#f9fafb', borderRadius: 8, padding: '0.75rem', fontSize: '0.78rem', overflowX: 'auto', margin: 0, color: '#374151' }}>{JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                  );
+                } catch { return null; }
+              })()}
+            </div>
+            <div className={s.modalFooter}>
+              {(selected.status === 'submitted' || selected.status === 'pending') && hasPermission('application.update') && (
+                <>
+                  <button onClick={() => handleApprove(selected.id)} className={`${s.btn} ${s.btnGreen}`}><i className="fas fa-check" />Approve</button>
+                  <button onClick={() => handleReject(selected.id)} className={`${s.btn} ${s.btnDanger}`}><i className="fas fa-times" />Reject</button>
+                </>
+              )}
+              <button onClick={() => setShowModal(false)} className={`${s.btn} ${s.btnOutline}`}>Close</button>
             </div>
           </div>
         </div>

@@ -1,688 +1,416 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useStudents } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
 
 export default function ImportStudentsPage() {
-  const router = useRouter();
+  const router  = useRouter();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // ✅ Redux for schemas
-  const { schemas, fetchStudentSchemas } = useStudents();
-  
-  const [selectedSchema, setSelectedSchema] = useState('');
-  const [schemaFields, setSchemaFields] = useState([]);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [importResults, setImportResults] = useState(null);
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { schemas, loading: schemasLoading, fetchStudentSchemas } = useStudents();
 
+  const [selectedSchema, setSelectedSchema] = useState('');
+  const [schemaFields, setSchemaFields]     = useState([]);
+  const [selectedFile, setSelectedFile]     = useState(null);
+  const [uploading, setUploading]           = useState(false);
+  const [progress, setProgress]             = useState(0);
+  const [error, setError]                   = useState('');
+  const [notice, setNotice]                 = useState('');
+  const [importResults, setImportResults]   = useState(null);
+  const loadedRef = useRef(false);
+
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchStudentSchemas();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true; fetchStudentSchemas();
     }
-  }, [status, fetchStudentSchemas]);
+  }, [status, session?.user?.id, fetchStudentSchemas]);
 
   const fetchSchemaFields = useCallback(async (schemaId) => {
     try {
-      const response = await apiService.get(API_ENDPOINTS.STUDENTS.SCHEMAS.FIELDS.GET_ALL(schemaId));
-      const fields = response.data.data?.fields || response.data.fields || [];
-      setSchemaFields(fields);
-    } catch (err) {
-      console.error('Error fetching schema fields:', err);
-      setSchemaFields([]);
-    }
+      const res = await apiService.get(API_ENDPOINTS.STUDENTS.SCHEMAS.FIELDS.GET_ALL(schemaId));
+      setSchemaFields(res.data.data?.fields || res.data.fields || []);
+    } catch { setSchemaFields([]); }
   }, []);
 
-  // Fetch schema fields when schema is selected
   useEffect(() => {
-    if (selectedSchema) {
-      fetchSchemaFields(selectedSchema);
-    } else {
-      setSchemaFields([]);
-    }
+    if (selectedSchema) fetchSchemaFields(selectedSchema);
+    else setSchemaFields([]);
   }, [selectedSchema, fetchSchemaFields]);
 
-  // ✅ Download CSV Template with dynamic custom fields
   const handleDownloadTemplate = () => {
-    // Default fields
     const defaultHeaders = [
-      'first_name',
-      'last_name',
-      'middle_name',
-      'email',
-      'phone',
-      'date_of_birth',
-      'gender',
-      'address',
-      'city',
-      'state',
-      'country',
-      'postal_code',
-      'guardian_name',
-      'guardian_phone',
-      'guardian_email',
-      'guardian_relationship',
-      'previous_school',
-      'graduation_year',
-      'school_level',
-      'class_level',
-      'create_user_account'
+      'first_name','last_name','middle_name','email','phone','date_of_birth','gender',
+      'address','city','state','country','postal_code',
+      'guardian_name','guardian_phone','guardian_email','guardian_relationship',
+      'previous_school','graduation_year','school_level','class_level','create_user_account',
     ];
-
-    // ✅ Add custom fields with cf_ prefix
-    const customHeaders = schemaFields.map(field => `cf_${field.field_name}`);
-    
+    const customHeaders = schemaFields.map(f => `cf_${f.field_name}`);
     const headers = [...defaultHeaders, ...customHeaders];
 
-    // ✅ Generate sample values for custom fields
-    const generateCustomFieldSample = (field) => {
-      switch (field.field_type) {
-        case 'text':
-          return `Sample ${field.field_label}`;
-        case 'textarea':
-          return `Sample description for ${field.field_label}`;
-        case 'email':
-          return 'sample@email.com';
-        case 'tel':
-        case 'phone':
-          return '+2348012345678';
-        case 'number':
-          return '0';
-        case 'date':
-          return '2024-01-01';
-        case 'select':
-        case 'radio':
-          const options = field.field_options ? field.field_options.split(',').map(o => o.trim()) : [];
-          return options[0] || 'Option 1';
-        case 'checkbox':
-          return 'false';
-        default:
-          return '';
+    const genSample = (f) => {
+      const t = f.field_type;
+      if (t === 'email') return 'sample@email.com';
+      if (t === 'tel' || t === 'phone') return '+2348012345678';
+      if (t === 'number') return '0';
+      if (t === 'date') return '2024-01-01';
+      if (t === 'checkbox') return 'false';
+      if (t === 'select' || t === 'radio') {
+        const opts = f.field_options ? f.field_options.split(',').map(o => o.trim()) : [];
+        return opts[0] || 'Option 1';
       }
+      return `Sample ${f.field_label}`;
     };
 
-    const customSampleValues = schemaFields.map(generateCustomFieldSample);
-
-    // Sample data rows with custom fields
-    const sampleRows = [
-      [
-        'John',
-        'Doe',
-        'Michael',
-        'john.doe@parent.com',
-        '+2348012345678',
-        '2010-05-15',
-        'male',
-        '123 Main Street',
-        'Lagos',
-        'Lagos',
-        'Nigeria',
-        '100001',
-        'Mrs. Jane Doe',
-        '+2348098765432',
-        'jane.doe@email.com',
-        'Mother',
-        'ABC Primary School',
-        '2023',
-        'Primary',
-        'Primary 3',
-        'true',
-        ...customSampleValues
-      ]
+    const sampleRow = [
+      'John','Doe','Michael','john.doe@parent.com','+2348012345678','2010-05-15','male',
+      '123 Main Street','Lagos','Lagos','Nigeria','100001',
+      'Mrs. Jane Doe','+2348098765432','jane.doe@email.com','Mother',
+      'ABC Primary School','2023','Primary','Primary 3','true',
+      ...schemaFields.map(genSample),
     ];
 
-    // Create CSV content
-    const csvContent = [
-      headers.join(','),
-      ...sampleRows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
-
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
+    const csv = [headers.join(','), sampleRow.map(c => `"${c}"`).join(',')].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    
-    // ✅ Dynamic filename based on schema
-    const schemaName = schemas.find(s => s.id === parseInt(selectedSchema))?.schema_name || 'students';
-    link.download = `${schemaName}_import_template_${new Date().toISOString().split('T')[0]}.csv`;
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    const schemaName = schemas.find(sc => sc.id === parseInt(selectedSchema))?.schema_name || 'students';
+    link.download = `${schemaName}_template_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link); link.click();
+    document.body.removeChild(link); window.URL.revokeObjectURL(url);
   };
 
-  // Handle file selection
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
       if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-        setError('Please select a valid CSV file');
-        return;
+        setError('Please select a valid CSV file'); return;
       }
-      setSelectedFile(file);
-      setError('');
+      setSelectedFile(file); setError('');
     }
   };
 
-  // Handle file upload
   const handleUpload = async () => {
-    if (!selectedFile) {
-      setError('Please select a CSV file first');
-      return;
-    }
-
-    if (!selectedSchema) {
-      setError('Please select a student schema first');
-      return;
-    }
-
-    setIsUploading(true);
-    setError('');
-    setUploadProgress(0);
-
+    if (!selectedFile)  { setError('Please select a CSV file first'); return; }
+    if (!selectedSchema){ setError('Please select a student schema first'); return; }
+    setUploading(true); setError(''); setProgress(0);
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('schema_id', selectedSchema); // ✅ Include schema_id
-
-      // Simulate progress (you can implement actual progress tracking)
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 200);
-
-      const response = await apiService.post(API_ENDPOINTS.STUDENTS.BULK_CREATE, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      setSuccess(true);
-      setImportResults(response.data);
-      
-      setTimeout(() => {
-        router.push('/admin/dashboard/students');
-      }, 3000);
-
+      const fd = new FormData();
+      fd.append('file', selectedFile);
+      fd.append('schema_id', selectedSchema);
+      const iv = setInterval(() => setProgress(p => { if (p >= 90) { clearInterval(iv); return 90; } return p + 10; }), 200);
+      const res = await apiService.post(API_ENDPOINTS.STUDENTS.BULK_CREATE, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      clearInterval(iv); setProgress(100);
+      setNotice(`Import complete! ${res.data.success_count || 0} students imported.`);
+      setImportResults(res.data);
+      setTimeout(() => router.push('/admin/dashboard/students'), 3000);
     } catch (err) {
-      console.error('Error uploading file:', err);
       setError(err.message || 'Failed to import students. Please check your CSV format.');
       setImportResults(err.response?.data);
     } finally {
-      setIsUploading(false);
-      setTimeout(() => setUploadProgress(0), 1000);
+      setUploading(false);
+      setTimeout(() => setProgress(0), 1000);
     }
   };
 
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading || schemasLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Redirect if not authenticated
-  if (status === 'unauthenticated') {
-    window.location.href = '/login';
-    return null;
-  }
-
-  // Check permissions
   if (!hasPermission('student.create')) {
     return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Access Denied</h4>
-        <p>You don&apos;t have permission to import students.</p>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to import students.</div>
+        <Link href="/admin/dashboard/students" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Students</Link>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-file-import text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-file-import" /></span>
             Bulk Import Students
-          </h2>
-          <p className="text-muted mb-0">Import multiple students from CSV file</p>
+          </h1>
+          <p className={s.pageSub}>Import multiple students from a CSV file</p>
         </div>
-        <Link href="/admin/dashboard/students" className="btn btn-outline-secondary">
-          <i className="fas fa-arrow-left me-2"></i>
-          Back to Students
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/students" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Students
+          </Link>
+        </div>
       </div>
 
-      {/* Success Alert */}
-      {success && importResults && (
-        <div className="alert alert-success alert-dismissible fade show" role="alert">
-          <i className="fas fa-check-circle me-2"></i>
-          <strong>Import Successful!</strong> {importResults.success_count || 0} students imported successfully.
-          {importResults.error_count > 0 && ` (${importResults.error_count} failed)`}
-          <button type="button" className="btn-close" onClick={() => setSuccess(false)}></button>
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}</div>}
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError('')}></button>
-        </div>
-      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
-      <div className="row">
-        {/* Main Content */}
-        <div className="col-lg-8">
-          {/* ✅ Step 0: Select Schema */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <span className="badge bg-light text-info me-2">📋</span>
-                Select Student Schema
-              </h5>
+        {/* Left: steps */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* Step 0: Select Schema */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 24, height: 24, borderRadius: '50%', background: '#e0f2fe', color: '#0891b2', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700 }}>0</span>
+                Select Schema
+              </span>
             </div>
-            <div className="card-body">
-              <div className="mb-3">
-                <label htmlFor="schema-select" className="form-label">
-                  Student Schema <span className="text-danger">*</span>
-                </label>
-                <select
-                  id="schema-select"
-                  className="form-select"
-                  value={selectedSchema}
-                  onChange={(e) => setSelectedSchema(e.target.value)}
-                  disabled={isUploading}
-                >
-                  <option value="">-- Select a schema --</option>
-                  {schemas.map(schema => (
-                    <option key={schema.id} value={schema.id}>
-                      {schema.display_name} ({schema.schema_name})
-                    </option>
-                  ))}
+            <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Student Schema <span style={{ color: '#dc2626' }}>*</span></label>
+                <select className={s.formSelect} value={selectedSchema} onChange={e => setSelectedSchema(e.target.value)} disabled={uploading}>
+                  <option value="">— Select a schema —</option>
+                  {schemas.map(sc => <option key={sc.id} value={sc.id}>{sc.display_name} ({sc.schema_name})</option>)}
                 </select>
-                <small className="text-muted">
-                  The CSV template will include custom fields from the selected schema
-                </small>
+                <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>The CSV template will include custom fields from the selected schema</p>
               </div>
-
-              {/* ✅ Show custom fields info */}
               {selectedSchema && schemaFields.length > 0 && (
-                <div className="alert alert-info mb-0">
-                  <strong>
-                    <i className="fas fa-info-circle me-1"></i>
-                    Custom Fields ({schemaFields.length}):
-                  </strong>
-                  <ul className="mb-0 mt-2">
-                    {schemaFields.map(field => (
-                      <li key={field.id}>
-                        <code>cf_{field.field_name}</code> - {field.field_label}
-                        {field.is_required && <span className="text-danger"> *</span>}
-                        <small className="text-muted"> ({field.field_type})</small>
-                      </li>
-                    ))}
-                  </ul>
+                <div className={`${s.alert} ${s.alertInfo}`} style={{ marginBottom: 0 }}>
+                  <i className="fas fa-info-circle" />
+                  <div>
+                    <strong style={{ fontSize: '0.82rem' }}>Custom Fields ({schemaFields.length}):</strong>
+                    <ul style={{ margin: '0.3rem 0 0', paddingLeft: '1rem', fontSize: '0.78rem' }}>
+                      {schemaFields.map(f => (
+                        <li key={f.id}><code style={{ background: '#e0f2fe', padding: '0.1rem 0.3rem', borderRadius: 3 }}>cf_{f.field_name}</code> — {f.field_label}{f.is_required && <span style={{ color: '#dc2626' }}> *</span>}</li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               )}
-
               {selectedSchema && schemaFields.length === 0 && (
-                <div className="alert alert-warning mb-0">
-                  <i className="fas fa-exclamation-triangle me-1"></i>
-                  This schema has no custom fields. Only default student fields will be included.
+                <div className={`${s.alert} ${s.alertInfo}`} style={{ marginBottom: 0 }}>
+                  <i className="fas fa-info-circle" />
+                  <span style={{ fontSize: '0.82rem' }}>This schema has no custom fields — only default student fields will be included.</span>
                 </div>
               )}
             </div>
           </div>
 
           {/* Step 1: Download Template */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-primary text-white">
-              <h5 className="card-title mb-0">
-                <span className="badge bg-light text-primary me-2">1</span>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 24, height: 24, borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700 }}>1</span>
                 Download CSV Template
-              </h5>
+              </span>
             </div>
-            <div className="card-body">
-              <p className="mb-3">
-                Download the CSV template with sample data. The template will include custom fields from your selected schema.
+            <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+              <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1rem' }}>
+                Download the CSV template with sample data. Includes custom fields for the selected schema.
               </p>
-              <button 
-                className="btn btn-success"
-                onClick={handleDownloadTemplate}
-                disabled={!selectedSchema}
-              >
-                <i className="fas fa-download me-2"></i>
-                Download Template {selectedSchema && `(${schemas.find(s => s.id === parseInt(selectedSchema))?.schema_name}_template.csv)`}
+              <button className={`${s.btn} ${s.btnGreen}`} onClick={handleDownloadTemplate} disabled={!selectedSchema}>
+                <i className="fas fa-download" />Download Template{selectedSchema ? ` (${schemas.find(sc => sc.id === parseInt(selectedSchema))?.schema_name}_template.csv)` : ''}
               </button>
-              {!selectedSchema && (
-                <p className="text-muted mt-2 mb-0">
-                  <small><i className="fas fa-info-circle me-1"></i>Please select a schema first</small>
-                </p>
-              )}
+              {!selectedSchema && <p style={{ fontSize: '0.78rem', color: '#9ca3af', marginTop: '0.5rem' }}>Select a schema above first</p>}
             </div>
           </div>
 
-          {/* Step 2: Fill Template */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <span className="badge bg-light text-info me-2">2</span>
+          {/* Step 2: Fill Data */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 24, height: 24, borderRadius: '50%', background: '#e0f2fe', color: '#0891b2', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700 }}>2</span>
                 Fill in Student Data
-              </h5>
+              </span>
             </div>
-            <div className="card-body">
-              <p className="mb-3">
-                Open the CSV file in Excel or Google Sheets and fill in your student data.
-              </p>
-              
-              <div className="alert alert-warning mb-3">
-                <h6><i className="fas fa-exclamation-triangle me-2"></i>Important Notes:</h6>
-                <ul className="mb-0 small">
-                  <li>Keep the header row as is (don&apos;t modify column names)</li>
-                  <li>Required fields: <strong>first_name, last_name, email, schema_name</strong></li>
-                  <li><strong>schema_name</strong> must be: nursery, primary, jss, or sss</li>
-                  <li><strong>gender</strong> must be: male, female, or other</li>
-                  <li><strong>date_of_birth</strong> format: YYYY-MM-DD (e.g., 2010-05-15)</li>
-                  <li><strong>create_user_account</strong>: true or false</li>
-                  <li>Save as CSV format (not Excel)</li>
-                </ul>
+            <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+              <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1rem' }}>Open the CSV in Excel or Google Sheets and fill in your student data.</p>
+              <div className={`${s.alert} ${s.alertDanger}`} style={{ marginBottom: '1rem' }}>
+                <i className="fas fa-exclamation-triangle" />
+                <div style={{ fontSize: '0.82rem' }}>
+                  <strong>Important:</strong>
+                  <ul style={{ margin: '0.3rem 0 0', paddingLeft: '1rem' }}>
+                    <li>Keep column names as-is (don&apos;t rename)</li>
+                    <li>Required: <strong>first_name, last_name, email, schema_name</strong></li>
+                    <li>Date format: <strong>YYYY-MM-DD</strong> (e.g., 2010-05-15)</li>
+                    <li>Save as CSV, not Excel format</li>
+                  </ul>
+                </div>
               </div>
-
-              <div className="table-responsive">
-                <table className="table table-sm table-bordered">
-                  <thead className="table-light">
-                    <tr>
-                      <th>Column</th>
-                      <th>Required</th>
-                      <th>Format/Options</th>
-                    </tr>
+              <div className={s.tableWrap}>
+                <table className={s.table}>
+                  <thead>
+                    <tr><th>Column</th><th>Required</th><th>Format</th></tr>
                   </thead>
-                  <tbody className="small">
-                    <tr>
-                      <td><code>first_name</code></td>
-                      <td><span className="badge bg-danger">Required</span></td>
-                      <td>Text</td>
-                    </tr>
-                    <tr>
-                      <td><code>last_name</code></td>
-                      <td><span className="badge bg-danger">Required</span></td>
-                      <td>Text</td>
-                    </tr>
-                    <tr>
-                      <td><code>email</code></td>
-                      <td><span className="badge bg-danger">Required</span></td>
-                      <td>Valid email address</td>
-                    </tr>
-                    <tr>
-                      <td><code>schema_name</code></td>
-                      <td><span className="badge bg-danger">Required</span></td>
-                      <td>nursery | primary | jss | sss</td>
-                    </tr>
-                    <tr>
-                      <td><code>gender</code></td>
-                      <td><span className="badge bg-secondary">Optional</span></td>
-                      <td>male | female | other</td>
-                    </tr>
-                    <tr>
-                      <td><code>date_of_birth</code></td>
-                      <td><span className="badge bg-secondary">Optional</span></td>
-                      <td>YYYY-MM-DD</td>
-                    </tr>
-                    <tr>
-                      <td><code>create_user_account</code></td>
-                      <td><span className="badge bg-secondary">Optional</span></td>
-                      <td>true | false (default: false)</td>
-                    </tr>
+                  <tbody>
+                    {[
+                      { col: 'first_name',           req: true,  fmt: 'Text' },
+                      { col: 'last_name',             req: true,  fmt: 'Text' },
+                      { col: 'email',                 req: true,  fmt: 'Valid email' },
+                      { col: 'schema_name',           req: true,  fmt: 'nursery | primary | jss | sss' },
+                      { col: 'gender',                req: false, fmt: 'male | female | other' },
+                      { col: 'date_of_birth',         req: false, fmt: 'YYYY-MM-DD' },
+                      { col: 'create_user_account',   req: false, fmt: 'true | false' },
+                    ].map(r => (
+                      <tr key={r.col}>
+                        <td><code style={{ background: '#f1f5f9', padding: '0.1rem 0.3rem', borderRadius: 3, fontSize: '0.78rem' }}>{r.col}</code></td>
+                        <td><span className={`${s.badge} ${r.req ? s.badgePending : s.badgeInfo}`}>{r.req ? 'Required' : 'Optional'}</span></td>
+                        <td style={{ fontSize: '0.82rem' }}>{r.fmt}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
 
-          {/* Step 3: Upload File */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-success text-white">
-              <h5 className="card-title mb-0">
-                <span className="badge bg-light text-success me-2">3</span>
+          {/* Step 3: Upload */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 24, height: 24, borderRadius: '50%', background: '#d1fae5', color: '#059669', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700 }}>3</span>
                 Upload CSV File
-              </h5>
+              </span>
             </div>
-            <div className="card-body">
-              <div className="mb-3">
-                <label className="form-label">Select CSV File</label>
-                <input
-                  type="file"
-                  className="form-control"
-                  accept=".csv"
-                  onChange={handleFileSelect}
-                  disabled={isUploading}
-                />
+            <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Select CSV File</label>
+                <input type="file" className={s.formInput} accept=".csv" onChange={handleFileSelect} disabled={uploading} />
               </div>
-
               {selectedFile && (
-                <div className="alert alert-info mb-3">
-                  <i className="fas fa-file-csv me-2"></i>
-                  <strong>Selected:</strong> {selectedFile.name} ({(selectedFile.size / 1024).toFixed(2)} KB)
+                <div className={`${s.alert} ${s.alertInfo}`} style={{ marginBottom: '1rem' }}>
+                  <i className="fas fa-file-csv" />
+                  <span style={{ fontSize: '0.82rem' }}><strong>{selectedFile.name}</strong> — {(selectedFile.size / 1024).toFixed(2)} KB</span>
                 </div>
               )}
-
-              {uploadProgress > 0 && (
-                <div className="mb-3">
-                  <div className="d-flex justify-content-between mb-1">
-                    <span>Uploading...</span>
-                    <span>{uploadProgress}%</span>
+              {progress > 0 && (
+                <div style={{ marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.82rem', color: '#6b7280' }}>
+                    <span>Uploading…</span><span>{progress}%</span>
                   </div>
-                  <div className="progress">
-                    <div 
-                      className="progress-bar progress-bar-striped progress-bar-animated" 
-                      role="progressbar" 
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
+                  <div style={{ background: '#e2e8f0', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: '#2563eb', borderRadius: 4, width: `${progress}%`, transition: 'width 0.2s' }} />
                   </div>
                 </div>
               )}
-
-              <button
-                className="btn btn-primary-custom"
-                onClick={handleUpload}
-                disabled={!selectedFile || isUploading}
-              >
-                {isUploading ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin me-2"></i>
-                    Importing...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-upload me-2"></i>
-                    Import Students
-                  </>
-                )}
+              <button className={`${s.btn} ${s.btnPrimary}`} onClick={handleUpload} disabled={!selectedFile || uploading}>
+                {uploading ? <><span className="spinner-border spinner-border-sm" />Importing…</> : <><i className="fas fa-upload" />Import Students</>}
               </button>
             </div>
           </div>
 
-          {/* Import Results */}
+          {/* Results */}
           {importResults && (
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-light">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-chart-bar me-2"></i>
-                  Import Results
-                </h5>
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}><i className="fas fa-chart-bar" style={{ color: '#0891b2' }} />Import Results</span>
               </div>
-              <div className="card-body">
-                <div className="row text-center">
-                  <div className="col-md-4 mb-3">
-                    <div className="p-3 border rounded">
-                      <h2 className="text-success mb-0">{importResults.success_count || 0}</h2>
-                      <small className="text-muted">Successful</small>
+              <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+                <div className={s.statsGrid} style={{ margin: '0 0 1rem' }}>
+                  {[
+                    { label: 'Successful', value: importResults.success_count || 0, icon: 'fas fa-check-circle', color: '#059669' },
+                    { label: 'Failed',     value: importResults.error_count   || 0, icon: 'fas fa-times-circle', color: '#dc2626' },
+                    { label: 'Total',      value: importResults.total_count   || 0, icon: 'fas fa-list',          color: '#2563eb' },
+                  ].map(st => (
+                    <div key={st.label} className={s.statCard} style={{ '--accent': st.color, cursor: 'default' }}>
+                      <div className={s.statInfo}>
+                        <div className={s.statLabel}>{st.label}</div>
+                        <div className={s.statNumber} style={{ color: st.color }}>{st.value}</div>
+                      </div>
+                      <div className={s.statIcon} style={{ background: `${st.color}18`, color: st.color }}><i className={st.icon} /></div>
                     </div>
-                  </div>
-                  <div className="col-md-4 mb-3">
-                    <div className="p-3 border rounded">
-                      <h2 className="text-danger mb-0">{importResults.error_count || 0}</h2>
-                      <small className="text-muted">Failed</small>
-                    </div>
-                  </div>
-                  <div className="col-md-4 mb-3">
-                    <div className="p-3 border rounded">
-                      <h2 className="text-primary mb-0">{importResults.total_count || 0}</h2>
-                      <small className="text-muted">Total</small>
-                    </div>
-                  </div>
+                  ))}
                 </div>
 
-                {importResults.errors && importResults.errors.length > 0 && (
-                  <div className="mt-3">
-                    <h6 className="text-danger">Errors:</h6>
-                    <div className="alert alert-danger">
-                      <ul className="mb-0 small">
-                        {importResults.errors.map((err, index) => (
-                          <li key={index}>
-                            Row {err.row}: {err.message}
-                          </li>
-                        ))}
+                {importResults.errors?.length > 0 && (
+                  <div className={`${s.alert} ${s.alertDanger}`} style={{ marginBottom: '1rem' }}>
+                    <i className="fas fa-exclamation-triangle" />
+                    <div>
+                      <strong style={{ fontSize: '0.82rem' }}>Errors:</strong>
+                      <ul style={{ margin: '0.3rem 0 0', paddingLeft: '1rem', fontSize: '0.78rem' }}>
+                        {importResults.errors.map((e, i) => <li key={i}>Row {e.row}: {e.message}</li>)}
                       </ul>
                     </div>
                   </div>
                 )}
 
-                {importResults.created_students && importResults.created_students.length > 0 && (
-                  <div className="mt-3">
-                    <h6 className="text-success">Successfully Created Students:</h6>
-                    <div className="table-responsive">
-                      <table className="table table-sm">
+                {importResults.created_students?.length > 0 && (
+                  <>
+                    <p style={{ fontSize: '0.82rem', fontWeight: 600, color: '#059669', marginBottom: '0.5rem' }}>
+                      <i className="fas fa-check-circle" style={{ marginRight: '0.4rem' }} />
+                      Successfully Created ({importResults.created_students.length})
+                    </p>
+                    <div className={s.tableWrap}>
+                      <table className={s.table}>
                         <thead>
-                          <tr>
-                            <th>Student ID</th>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Level</th>
-                          </tr>
+                          <tr><th>Student ID</th><th>Name</th><th>Email</th><th>Level</th></tr>
                         </thead>
                         <tbody>
-                          {importResults.created_students.slice(0, 10).map((student) => (
-                            <tr key={student.id}>
-                              <td>{student.student_id}</td>
-                              <td>{student.first_name} {student.last_name}</td>
-                              <td>{student.email}</td>
-                              <td>{student.schema_name}</td>
+                          {importResults.created_students.slice(0, 10).map(st => (
+                            <tr key={st.id}>
+                              <td className={s.tdMono}>{st.student_id}</td>
+                              <td>{st.first_name} {st.last_name}</td>
+                              <td className={s.tdEmail}>{st.email}</td>
+                              <td><span className={`${s.badge} ${s.badgeInfo}`}>{st.schema_name}</span></td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                      {importResults.created_students.length > 10 && (
-                        <p className="text-muted small mb-0">
-                          Showing 10 of {importResults.created_students.length} students
-                        </p>
-                      )}
                     </div>
-                  </div>
+                    {importResults.created_students.length > 10 && (
+                      <p style={{ fontSize: '0.78rem', color: '#9ca3af', marginTop: '0.4rem' }}>Showing 10 of {importResults.created_students.length} students</p>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Sidebar - Help & Info */}
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-question-circle me-2"></i>
+        {/* Sidebar: guidelines */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                  <i className="fas fa-question-circle" style={{ fontSize: '0.75rem' }} />
+                </span>
                 Import Guidelines
-              </h5>
+              </span>
             </div>
-            <div className="card-body">
-              <h6>📋 Before You Start:</h6>
-              <ul className="small">
-                <li>Prepare your student data in Excel/Google Sheets</li>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem', fontSize: '0.82rem', color: '#374151' }}>
+              <strong style={{ display: 'block', marginBottom: '0.4rem' }}>Before You Start:</strong>
+              <ul style={{ paddingLeft: '1.1rem', lineHeight: 1.9, marginBottom: '0.75rem' }}>
+                <li>Prepare student data in Excel or Google Sheets</li>
                 <li>Verify all email addresses are valid</li>
-                <li>Ensure dates are in YYYY-MM-DD format</li>
+                <li>Dates must be YYYY-MM-DD format</li>
                 <li>Double-check school levels (nursery, primary, jss, sss)</li>
               </ul>
-
-              <hr />
-
-              <h6>⚠️ Common Mistakes:</h6>
-              <ul className="small text-danger">
+              <strong style={{ display: 'block', marginBottom: '0.4rem', color: '#dc2626' }}>Common Mistakes:</strong>
+              <ul style={{ paddingLeft: '1.1rem', lineHeight: 1.9, marginBottom: '0.75rem', color: '#dc2626' }}>
                 <li>Missing required fields</li>
                 <li>Invalid email formats</li>
-                <li>Wrong date format (use YYYY-MM-DD)</li>
+                <li>Wrong date format</li>
                 <li>Incorrect schema_name values</li>
                 <li>Duplicate student emails</li>
               </ul>
-
-              <hr />
-
-              <h6>💡 Pro Tips:</h6>
-              <ul className="small text-success">
-                <li>Start with a small batch (10-20 students)</li>
-                <li>Test import before doing large batches</li>
+              <strong style={{ display: 'block', marginBottom: '0.4rem', color: '#059669' }}>Pro Tips:</strong>
+              <ul style={{ paddingLeft: '1.1rem', lineHeight: 1.9, marginBottom: 0, color: '#059669' }}>
+                <li>Start small — test with 10–20 students first</li>
                 <li>Keep a backup of your original data</li>
                 <li>Review error messages carefully</li>
               </ul>
-
-              <hr />
-
-              <h6>🔐 User Accounts:</h6>
-              <p className="small mb-0">
-                If <code>create_user_account</code> is set to <strong>true</strong>, 
-                login credentials will be auto-generated. Download the report after import 
-                to get usernames and passwords.
-              </p>
             </div>
           </div>
 
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-warning">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-lightbulb me-2"></i>
-                Need Help?
-              </h5>
-            </div>
-            <div className="card-body">
-              <p className="small mb-2">
-                <i className="fas fa-envelope me-2 text-primary"></i>
-                Email: support@school.com
-              </p>
-              <p className="small mb-2">
-                <i className="fas fa-phone me-2 text-success"></i>
-                Phone: +234 XXX XXX XXXX
-              </p>
-              <p className="small mb-0">
-                <i className="fas fa-book me-2 text-info"></i>
-                <Link href="/admin/dashboard/help">View User Guide</Link>
-              </p>
-            </div>
+          <div className={`${s.alert} ${s.alertInfo}`} style={{ margin: 0 }}>
+            <i className="fas fa-key" />
+            <span style={{ fontSize: '0.78rem' }}>If <code>create_user_account</code> is <strong>true</strong>, login credentials are auto-generated. Download the results report after import.</span>
           </div>
         </div>
+
       </div>
     </div>
   );

@@ -1,266 +1,166 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRoles, usePermissionsData, useRolePermissions } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
 
 export default function RolePermissionsPage() {
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state
+  const { loading: permLoading } = usePermissions();
   const { roles, fetchRoles } = useRoles();
   const { permissions, fetchPermissions } = usePermissionsData();
-  const {
-    rolePermissions,
-    loading,
-    error,
-    fetchAllRolePermissions,
-    assignPermissionsToRole,
-    removePermissionFromRole
-  } = useRolePermissions();
-  
-  const [selectedRole, setSelectedRole] = useState('');
-  const [selectedPermissions, setSelectedPermissions] = useState([]);
-  const [assigning, setAssigning] = useState(false);
+  const { rolePermissions, loading, error, fetchAllRolePermissions, assignPermissionsToRole, removePermissionFromRole } = useRolePermissions();
 
+  const [selectedRole, setSelectedRole]   = useState('');
+  const [selectedPerms, setSelectedPerms] = useState([]);
+  const [busy, setBusy]                   = useState(false);
+  const [notice, setNotice]               = useState('');
+  const loadedRef = useRef(false);
+
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken) {
-      fetchRoles();
-      fetchPermissions();
-      fetchAllRolePermissions();
+    if (status === 'authenticated' && session?.user?.id && !loadedRef.current) {
+      loadedRef.current = true;
+      fetchRoles(); fetchPermissions(); fetchAllRolePermissions();
     }
-  }, [status, session?.user?.id, session?.accessToken, fetchRoles, fetchPermissions, fetchAllRolePermissions]);
+  }, [status, session?.user?.id, fetchRoles, fetchPermissions, fetchAllRolePermissions]);
 
-  const handleAssignPermissions = async () => {
-    if (!selectedRole || selectedPermissions.length === 0) {
-      alert('Please select a role and at least one permission');
-      return;
-    }
+  const togglePerm = (id) => setSelectedPerms(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
 
-    setAssigning(true);
+  const handleAssign = async () => {
+    if (!selectedRole || !selectedPerms.length) { setNotice('Select a role and at least one permission.'); return; }
     try {
-      await assignPermissionsToRole({
-        roleId: selectedRole,
-        permissionIds: selectedPermissions
-      });
-      
-      alert('Permissions assigned successfully!');
-      setSelectedRole('');
-      setSelectedPermissions([]);
-      // Refresh data from Redux
+      setBusy(true); setNotice('');
+      assignPermissionsToRole({ roleId: selectedRole, permissionIds: selectedPerms });
+      setNotice('Permissions assigned successfully.');
+      setSelectedRole(''); setSelectedPerms([]);
       fetchAllRolePermissions();
-    } catch (error) {
-      console.error('Error assigning permissions:', error);
-      alert('Failed to assign permissions');
-    } finally {
-      setAssigning(false);
-    }
+    } catch { setNotice('Failed to assign permissions.'); }
+    finally { setBusy(false); }
   };
 
-  const handleRemovePermission = async (roleId, permissionId) => {
-    if (window.confirm('Are you sure you want to remove this permission from the role?')) {
-      try {
-        await removePermissionFromRole({ roleId, permissionId });
-        alert('Permission removed successfully!');
-        // Refresh data from Redux
-        fetchAllRolePermissions();
-      } catch (error) {
-        console.error('Error removing permission:', error);
-        alert('Failed to remove permission');
-      }
-    }
+  const handleRemove = (roleId, permId) => {
+    if (!window.confirm('Remove this permission from the role?')) return;
+    removePermissionFromRole({ roleId, permissionId: permId });
+    fetchAllRolePermissions();
   };
 
-  const getRolePermissions = (roleId) => {
-    return rolePermissions.filter(rp => rp.role_id === roleId);
-  };
+  const getRolePerms = (roleId) => rolePermissions.filter(rp => rp.role_id === roleId);
 
-  const isPermissionAssigned = (roleId, permissionId) => {
-    return rolePermissions.some(rp => rp.role_id === roleId && rp.permission_id === permissionId);
-  };
-
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
+  if (status === 'loading' || permLoading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="role-permissions-page">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-link text-primary me-2"></i>
-            Role Permission Management
-          </h2>
-          <p className="text-muted mb-0">Assign permissions to roles and manage access controls</p>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#ede9fe', color: '#7c3aed' }}><i className="fas fa-link" /></span>
+            Role Permissions
+          </h1>
+          <p className={s.pageSub}>Assign permissions to roles and manage access controls</p>
         </div>
       </div>
 
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}</div>}
+      {notice && <div className={`${s.alert} ${notice.includes('fail') || notice.includes('Select') ? s.alertDanger : s.alertSuccess}`}><i className={`fas fa-${notice.includes('fail') || notice.includes('Select') ? 'exclamation-triangle' : 'check-circle'}`} />{notice}<button onClick={() => setNotice('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><i className="fas fa-times" /></button></div>}
 
-      {/* Assignment Form */}
-      <div className="card mb-4">
-        <div className="card-header">
-          <h5 className="mb-0">
-            <i className="fas fa-plus-circle me-2"></i>
-            Assign Permissions to Role
-          </h5>
+      {/* Assign form */}
+      <div className={s.card}>
+        <div className={s.cardHeader}>
+          <span className={s.cardTitle}><i className="fas fa-plus-circle" style={{ color: '#7c3aed' }} />Assign Permissions to Role</span>
         </div>
-        <div className="card-body">
-          <div className="row">
-            <div className="col-md-4">
-              <label className="form-label">Select Role</label>
-              <select 
-                className="form-select"
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
-              >
-                <option value="">Choose a role...</option>
-                {roles.map(role => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
+        <div className={s.cardBody}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: '1rem', alignItems: 'flex-start' }}>
+            <div>
+              <label className={s.formLabel}>Role</label>
+              <select className={s.formSelect} value={selectedRole} onChange={e => setSelectedRole(e.target.value)}>
+                <option value="">Choose a role…</option>
+                {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
             </div>
-            <div className="col-md-6">
-              <label className="form-label">Select Permissions</label>
-              <div className="border rounded p-2" style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                {permissions.map(permission => (
-                  <div key={permission.id} className="form-check">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id={`permission-${permission.id}`}
-                      checked={selectedPermissions.includes(permission.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedPermissions([...selectedPermissions, permission.id]);
-                        } else {
-                          setSelectedPermissions(selectedPermissions.filter(id => id !== permission.id));
-                        }
-                      }}
-                    />
-                    <label className="form-check-label" htmlFor={`permission-${permission.id}`}>
-                      <strong>{permission.name}</strong>
-                      <br />
-                      <small className="text-muted">{permission.description}</small>
-                    </label>
-                  </div>
+            <div>
+              <label className={s.formLabel}>Permissions</label>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem', maxHeight: 200, overflowY: 'auto', background: '#fff' }}>
+                {permissions.length === 0 ? (
+                  <p style={{ fontSize: '0.82rem', color: '#9ca3af', margin: 0 }}>No permissions available.</p>
+                ) : permissions.map(perm => (
+                  <label key={perm.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.25rem', cursor: 'pointer', borderBottom: '1px solid #f9fafb', fontSize: '0.82rem', color: '#374151' }}>
+                    <input type="checkbox" checked={selectedPerms.includes(perm.id)} onChange={() => togglePerm(perm.id)} style={{ width: 14, height: 14 }} />
+                    <span style={{ fontWeight: 600 }}>{perm.name}</span>
+                    {perm.description && <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>— {perm.description}</span>}
+                  </label>
                 ))}
               </div>
+              {selectedPerms.length > 0 && <p style={{ fontSize: '0.75rem', color: '#7c3aed', marginTop: '0.25rem', marginBottom: 0 }}>{selectedPerms.length} selected</p>}
             </div>
-            <div className="col-md-2 d-flex align-items-end">
-              <button 
-                className="btn btn-primary w-100"
-                onClick={handleAssignPermissions}
-                disabled={assigning || !selectedRole || selectedPermissions.length === 0}
-              >
-                {assigning ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Assigning...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-link me-2"></i>
-                    Assign
-                  </>
-                )}
+            <div style={{ paddingTop: '1.5rem' }}>
+              <button onClick={handleAssign} className={`${s.btn} ${s.btnPrimary}`} disabled={busy || !selectedRole || !selectedPerms.length}>
+                {busy ? <><span className="spinner-border spinner-border-sm" />Assigning…</> : <><i className="fas fa-link" />Assign</>}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Role-Permission Assignments */}
-      <div className="card">
-        <div className="card-header">
-          <h5 className="mb-0">
-            <i className="fas fa-list me-2"></i>
-            Current Role-Permission Assignments
-          </h5>
+      {/* Role permission matrix */}
+      <div className={s.card} style={{ marginBottom: 0 }}>
+        <div className={s.cardHeader}>
+          <span className={s.cardTitle}><i className="fas fa-th-list" style={{ color: '#2563eb' }} />Current Assignments</span>
         </div>
-        <div className="card-body">
-          {loading ? (
-            <div className="text-center py-4">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
-              </div>
-            </div>
-          ) : (
-            <div className="row">
-              {roles.map(role => {
-                const rolePerms = getRolePermissions(role.id);
-                return (
-                  <div key={role.id} className="col-md-6 col-lg-4 mb-4">
-                    <div className="card h-100">
-                      <div className="card-header">
-                        <h6 className="mb-0">
-                          <i className="fas fa-user-shield text-primary me-2"></i>
-                          {role.name}
-                        </h6>
-                        <small className="text-muted">{rolePerms.length} permissions</small>
-                      </div>
-                      <div className="card-body">
-                        {rolePerms.length === 0 ? (
-                          <p className="text-muted mb-0">No permissions assigned</p>
-                        ) : (
-                          <div className="d-flex flex-wrap gap-1">
-                            {rolePerms.map(rp => {
-                              const permission = permissions.find(p => p.id === rp.permission_id);
-                              return (
-                                <span key={rp.id} className="badge bg-primary position-relative">
-                                  {permission?.name || 'Unknown'}
-                                  <button
-                                    className="btn-close btn-close-white position-absolute top-0 end-0"
-                                    style={{ fontSize: '0.5rem', padding: '0.1rem' }}
-                                    onClick={() => handleRemovePermission(role.id, rp.permission_id)}
-                                    title="Remove permission"
-                                  ></button>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
+        {loading ? (
+          <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>
+        ) : (
+          <div className={s.cardBody} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+            {roles.map(role => {
+              const rolePerms = getRolePerms(role.id);
+              return (
+                <div key={role.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ background: '#f8fafc', padding: '0.75rem 1rem', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <i className="fas fa-shield-alt" style={{ color: '#d97706', fontSize: '0.82rem' }} />
+                      <span style={{ fontWeight: 700, fontSize: '0.875rem', color: '#1e3a5f' }}>{role.name}</span>
                     </div>
+                    <span className={`${s.badge} ${s.badgeInfo}`}>{rolePerms.length}</span>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  <div style={{ padding: '0.75rem 1rem', minHeight: 60 }}>
+                    {rolePerms.length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: '#9ca3af', margin: 0, fontStyle: 'italic' }}>No permissions assigned</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                        {rolePerms.map(rp => {
+                          const perm = permissions.find(p => p.id === rp.permission_id);
+                          return (
+                            <span key={rp.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', background: '#ede9fe', color: '#7c3aed', borderRadius: 999, padding: '0.15rem 0.5rem', fontSize: '0.72rem', fontWeight: 600 }}>
+                              {perm?.name || 'Unknown'}
+                              <button onClick={() => handleRemove(role.id, rp.permission_id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: 0, lineHeight: 1, fontSize: '0.6rem', display: 'flex', alignItems: 'center' }} title="Remove">
+                                <i className="fas fa-times" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      <style jsx>{`
+        @media (max-width: 768px) {
+          div[style*="grid-template-columns: 1fr 2fr auto"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

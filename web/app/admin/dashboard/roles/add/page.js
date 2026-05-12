@@ -5,209 +5,127 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useRoles } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
 
 export default function AddRolePage() {
   const router = useRouter();
   const { status } = useSession();
-  const { createRole } = useRoles();  // ✅ New simple hook
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const { createRole } = useRoles();
+
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState('');
   const [success, setSuccess] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    is_active: true
-  });
+  const [formData, setFormData] = useState({ name: '', description: '', is_active: true });
 
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-    // Clear error when user starts typing
-    if (error) setError(null);
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    if (error) setError('');
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await createRole(formData);
-      setSuccess(true);
-      // Redirect to roles list after a short delay
-      setTimeout(() => {
-        router.push('/admin/dashboard/roles');
-      }, 1500);
-    } catch (error) {
-      console.error('Error creating role:', error);
-      setError(error.message || 'Failed to create role. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+    setSaving(true); setError('');
+    createRole(formData);
+    setSuccess(true);
+    setTimeout(() => router.push('/admin/dashboard/roles'), 1500);
+    setSaving(false);
   };
 
-  // Show loading while checking authentication
   if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Redirect if not authenticated
-  if (status === 'unauthenticated') {
-    window.location.href = '/login';
-    return null;
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-user-shield text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#ede9fe', color: '#7c3aed' }}><i className="fas fa-user-shield" /></span>
             Add New Role
-          </h2>
-          <p className="text-muted mb-0">Create a new user role</p>
+          </h1>
+          <p className={s.pageSub}>Create a new user role</p>
         </div>
-        <Link href="/admin/dashboard/roles" className="btn btn-outline-secondary">
-          <i className="fas fa-arrow-left me-2"></i>
-          Back to Roles
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/roles" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Back to Roles
+          </Link>
+        </div>
       </div>
 
-      <div className="row">
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-primary text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-user-shield me-2"></i>
-                Role Information
-              </h5>
-            </div>
-            <div className="card-body">
-              {/* Success Message */}
-              {success && (
-                <div className="alert alert-success alert-dismissible fade show" role="alert">
-                  <i className="fas fa-check-circle me-2"></i>
-                  Role created successfully! Redirecting to roles list...
-                </div>
-              )}
+      {error   && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {success && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />Role created successfully! Redirecting…</div>}
 
-              {/* Error Message */}
-              {error && (
-                <div className="alert alert-danger alert-dismissible fade show" role="alert">
-                  <i className="fas fa-exclamation-circle me-2"></i>
-                  {error}
-                  <button 
-                    type="button" 
-                    className="btn-close" 
-                    onClick={() => setError(null)}
-                  ></button>
-                </div>
-              )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
-              <form onSubmit={handleSubmit}>
-                <div className="mb-3">
-                  <label className="form-label">Role Name *</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    placeholder="e.g., Manager, Editor, Viewer"
-                    required
-                  />
-                </div>
+        {/* Form */}
+        <div className={s.card} style={{ marginBottom: 0 }}>
+          <div className={s.cardHeader}>
+            <span className={s.cardTitle}>
+              <span style={{ width: 28, height: 28, borderRadius: 6, background: '#ede9fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed' }}>
+                <i className="fas fa-user-shield" style={{ fontSize: '0.75rem' }} />
+              </span>
+              Role Information
+            </span>
+          </div>
+          <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+            <form onSubmit={handleSubmit}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Role Name <span style={{ color: '#dc2626' }}>*</span></label>
+                <input type="text" className={s.formInput} name="name" value={formData.name} onChange={handleChange} placeholder="e.g., Manager, Editor, Viewer" required />
+              </div>
 
-                <div className="mb-3">
-                  <label className="form-label">Description *</label>
-                  <textarea
-                    className="form-control"
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    rows="3"
-                    placeholder="Describe the role's responsibilities and access level"
-                    required
-                  ></textarea>
-                </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Description <span style={{ color: '#dc2626' }}>*</span></label>
+                <textarea className={s.formInput} name="description" value={formData.description} onChange={handleChange} rows={3} placeholder="Describe the role's responsibilities and access level" required style={{ resize: 'vertical' }} />
+              </div>
 
-                <div className="mb-3">
-                  <div className="form-check">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      name="is_active"
-                      checked={formData.is_active}
-                      onChange={handleInputChange}
-                    />
-                    <label className="form-check-label">
-                      Active Role
-                    </label>
-                  </div>
-                </div>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151', cursor: 'pointer' }}>
+                  <input type="checkbox" name="is_active" checked={formData.is_active} onChange={handleChange} style={{ width: 15, height: 15, accentColor: '#7c3aed' }} />
+                  Active Role
+                </label>
+              </div>
 
-                <div className="d-flex gap-2">
-                  <button
-                    type="submit"
-                    className="btn btn-primary-custom"
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <>
-                        <i className="fas fa-spinner fa-spin me-2"></i>
-                        Creating...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-save me-2"></i>
-                        Create Role
-                      </>
-                    )}
-                  </button>
-                  <Link href="/admin/dashboard/roles" className="btn btn-outline-secondary">
-                    <i className="fas fa-times me-2"></i>
-                    Cancel
-                  </Link>
-                </div>
-              </form>
-            </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
+                  {saving ? <><span className="spinner-border spinner-border-sm" />Creating…</> : <><i className="fas fa-save" />Create Role</>}
+                </button>
+                <Link href="/admin/dashboard/roles" className={`${s.btn} ${s.btnOutline}`}>
+                  <i className="fas fa-times" />Cancel
+                </Link>
+              </div>
+            </form>
           </div>
         </div>
 
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Help & Tips
-              </h5>
+        {/* Help sidebar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                  <i className="fas fa-lightbulb" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Tips
+              </span>
             </div>
-            <div className="card-body">
-              <div className="alert alert-info">
-                <h6><i className="fas fa-lightbulb me-2"></i>Tips:</h6>
-                <ul className="mb-0">
-                  <li>Use clear, descriptive role names</li>
-                  <li>Provide detailed descriptions</li>
-                  <li>Consider role hierarchy</li>
-                  <li>Set permissions after creation</li>
-                </ul>
-              </div>
-              
-              <div className="alert alert-warning">
-                <h6><i className="fas fa-exclamation-triangle me-2"></i>Note:</h6>
-                <p className="mb-0">
-                  After creating the role, you&apos;ll need to assign specific permissions to define what users with this role can do.
-                </p>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              <ul style={{ fontSize: '0.82rem', color: '#374151', paddingLeft: '1.1rem', lineHeight: 1.9, margin: 0 }}>
+                <li>Use clear, descriptive role names</li>
+                <li>Provide detailed descriptions</li>
+                <li>Consider role hierarchy</li>
+                <li>Set permissions after creation</li>
+              </ul>
+            </div>
+          </div>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              <div className={`${s.alert} ${s.alertInfo}`} style={{ marginBottom: 0 }}>
+                <i className="fas fa-info-circle" />
+                <span style={{ fontSize: '0.82rem' }}>After creating the role, assign specific permissions to define what users with this role can do.</span>
               </div>
             </div>
           </div>

@@ -3,239 +3,149 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePayments } from '@/hooks/useRedux';
+import s from '@/styles/student-portal.module.css';
+
+const STATUS_CFG = {
+  paid:      { cls: s.badgePaid,     icon: 'fa-check-circle', text: 'Paid' },
+  success:   { cls: s.badgeApproved, icon: 'fa-check-circle', text: 'Successful' },
+  pending:   { cls: s.badgePending,  icon: 'fa-clock',        text: 'Pending' },
+  failed:    { cls: s.badgeFailed,   icon: 'fa-times-circle', text: 'Failed' },
+  cancelled: { cls: s.badgeCancelled,icon: 'fa-ban',          text: 'Cancelled' },
+  refunded:  { cls: s.badgeInfo,     icon: 'fa-undo',         text: 'Refunded' },
+};
+
+function PayBadge({ status }) {
+  const b = STATUS_CFG[status] || STATUS_CFG.pending;
+  return <span className={`${s.badge} ${b.cls}`}><i className={`fas ${b.icon}`} />{b.text}</span>;
+}
 
 export default function StudentPayments() {
   const { loading, error, payments, fetchMyPayments } = usePayments();
 
-  useEffect(() => {
-    fetchMyPayments();
-  }, [fetchMyPayments]);
+  useEffect(() => { fetchMyPayments(); }, [fetchMyPayments]);
 
-  const getStatusBadge = (status) => {
-    const badges = {
-      'paid': { color: 'success', icon: 'check-circle', text: 'Paid' },
-      'success': { color: 'success', icon: 'check-circle', text: 'Successful' },
-      'pending': { color: 'warning', icon: 'clock', text: 'Pending' },
-      'failed': { color: 'danger', icon: 'times-circle', text: 'Failed' },
-      'cancelled': { color: 'secondary', icon: 'ban', text: 'Cancelled' },
-      'refunded': { color: 'info', icon: 'undo', text: 'Refunded' }
-    };
-    
-    const badge = badges[status] || badges['pending'];
-    
-    return (
-      <span className={`badge bg-${badge.color}`}>
-        <i className={`fas fa-${badge.icon} me-1`}></i>
-        {badge.text}
-      </span>
-    );
-  };
+  const successful = payments.filter((p) => p.payment_status === 'paid' || p.payment_status === 'success');
+  const totalPaid = successful.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
 
-  const totalPaid = payments
-    .filter(p => p.payment_status === 'paid' || p.payment_status === 'success')
-    .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+  const STATS = [
+    { label: 'Total Transactions', value: payments.length,    icon: 'fas fa-receipt',      color: '#2563eb' },
+    { label: 'Total Paid',         value: `₦${totalPaid.toLocaleString()}`, icon: 'fas fa-naira-sign', color: '#059669' },
+    { label: 'Successful',         value: successful.length,  icon: 'fas fa-check-circle', color: '#059669' },
+    { label: 'Pending',            value: payments.filter((p) => p.payment_status === 'pending').length, icon: 'fas fa-clock', color: '#d97706' },
+  ];
 
   if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="spinner-border text-success" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status"><span className="visually-hidden">Loading…</span></div></div>;
   }
 
   return (
-    <div className="container-fluid">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div className={s.wrap}>
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-credit-card text-success me-2"></i>
-            Payment History
-          </h2>
-          <p className="text-muted mb-0">View all your payment transactions</p>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#f0fdf4', color: '#059669' }}><i className="fas fa-credit-card" /></span>
+            Payments
+          </h1>
+          <p className={s.pageSub}>Overview of your payment transactions</p>
         </div>
-        <Link href="/admin/dashboard/student-portal/payments/history" className="btn btn-outline-primary">
-          <i className="fas fa-history me-2"></i>
-          View Full History
+        <Link href="/admin/dashboard/student-portal/payments/history" className={s.btnOutline}>
+          <i className="fas fa-history" />Full History
         </Link>
       </div>
 
-      {/* Stats Cards */}
-      <div className="row mb-4">
-        <div className="col-md-4 mb-3">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center">
-                <div>
-                  <p className="text-muted mb-1 small">Total Payments</p>
-                  <h4 className="mb-0">{payments.length}</h4>
+      {error && <div className={`${s.alertDanger} mb-4`}><i className="fas fa-exclamation-triangle me-2" />{error}</div>}
+
+      {/* Stats */}
+      <div className="row g-3 mb-4">
+        {STATS.map((st) => (
+          <div key={st.label} className="col-md-3 col-6">
+            <div className={s.statCard} style={{ '--accent': st.color }}>
+              <div className={s.statLeft}>
+                <div className={s.statIcon} style={{ background: `${st.color}15`, color: st.color }}>
+                  <i className={st.icon} />
                 </div>
-                <div className="bg-primary bg-opacity-10 p-3 rounded">
-                  <i className="fas fa-receipt text-primary fs-4"></i>
+                <div>
+                  <div className={s.statLabel}>{st.label}</div>
+                  <div className={s.statNumber} style={{ color: st.color, fontSize: '1.4rem' }}>{st.value}</div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        
-        <div className="col-md-4 mb-3">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center">
-                <div>
-                  <p className="text-muted mb-1 small">Total Paid</p>
-                  <h4 className="mb-0 text-success">₦{totalPaid.toLocaleString()}</h4>
-                </div>
-                <div className="bg-success bg-opacity-10 p-3 rounded">
-                  <i className="fas fa-check-circle text-success fs-4"></i>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="col-md-4 mb-3">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center">
-                <div>
-                  <p className="text-muted mb-1 small">Successful</p>
-                  <h4 className="mb-0">{payments.filter(p => p.payment_status === 'paid' || p.payment_status === 'success').length}</h4>
-                </div>
-                <div className="bg-success bg-opacity-10 p-3 rounded">
-                  <i className="fas fa-chart-line text-success fs-4"></i>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Error Alert */}
-      {error && (
-        <div className="alert alert-danger">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          {error}
-        </div>
-      )}
-
-      {/* Payments List */}
+      {/* Transactions */}
       {payments.length === 0 ? (
-        <div className="card border-0 shadow-sm">
-          <div className="card-body text-center py-5">
-            <i className="fas fa-receipt text-muted" style={{ fontSize: '4rem' }}></i>
-            <h5 className="mt-3 text-muted">No Payment History</h5>
-            <p className="text-muted">You haven&apos;t made any payments yet</p>
-            <Link href="/admin/dashboard/student-portal/applications/browse" className="btn btn-primary mt-3">
-              <i className="fas fa-search me-2"></i>
-              Browse Programs
-            </Link>
+        <div className={s.card}>
+          <div className={s.emptyState}>
+            <div className={s.emptyIcon}><i className="fas fa-receipt" /></div>
+            <h5 className={s.emptyTitle}>No Payments Yet</h5>
+            <p className={s.emptySub}>Your payment history will appear here after you make your first payment.</p>
+            <Link href="/admin/dashboard/student-portal/applications/browse" className={s.btnPrimary}><i className="fas fa-search" />Browse Programs</Link>
           </div>
         </div>
       ) : (
-        <div className="card border-0 shadow-sm">
-          <div className="card-header bg-light">
-            <h6 className="mb-0">
-              <i className="fas fa-list me-2"></i>
-              Transaction History
-            </h6>
+        <div className={s.card}>
+          <div className={s.cardHeader}>
+            <span className={s.cardTitle}><i className="fas fa-list me-2" style={{ color: '#2563eb' }} />Recent Transactions</span>
+            <Link href="/admin/dashboard/student-portal/payments/history" className={s.cardLink}>View all <i className="fas fa-arrow-right ms-1" /></Link>
           </div>
-          <div className="card-body p-0">
-            <div className="table-responsive">
-              <table className="table table-hover mb-0">
-                <thead className="table-light">
-                  <tr>
-                    <th>Reference</th>
-                    <th>Description</th>
-                    <th>Amount</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+          <div style={{ overflowX: 'auto' }}>
+            <table className={s.table}>
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.slice(0, 10).map((p) => (
+                  <tr key={p.id}>
+                    <td><code style={{ fontSize: '0.75rem', color: '#2563eb' }}>{p.transaction_reference || p.payment_reference}</code></td>
+                    <td>
+                      <div style={{ fontWeight: 500 }}>{p.payment_type || 'Application Fee'}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{p.application_number || (p.application_id && `APP${p.application_id}`)}</div>
+                    </td>
+                    <td><strong style={{ color: '#059669' }}>₦{parseFloat(p.amount || 0).toLocaleString()}</strong></td>
+                    <td>
+                      <div style={{ fontSize: '0.8rem' }}>{new Date(p.payment_date || p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>{new Date(p.payment_date || p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                    </td>
+                    <td><PayBadge status={p.payment_status} /></td>
+                    <td>
+                      <button className={`${s.btnOutline} ${s.btnSm}`} onClick={() => window.print()}>
+                        <i className="fas fa-download" />Receipt
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {payments.map((payment) => (
-                    <tr key={payment.id}>
-                      <td>
-                          <code className="small">{payment.transaction_reference || payment.payment_reference}</code>
-                      </td>
-                      <td>
-                        <div>
-                          <div className="fw-medium">{payment.payment_type || 'Application Fee'}</div>
-                          <small className="text-muted">
-                            {payment.application_number || (payment.application_id && `APP${payment.application_id}`)}
-                          </small>
-                        </div>
-                      </td>
-                      <td>
-                        <strong className="text-success">
-                          ₦{parseFloat(payment.amount || 0).toLocaleString()}
-                        </strong>
-                      </td>
-                      <td>
-                        <div className="small">
-                          {new Date(payment.payment_date || payment.created_at).toLocaleDateString()}
-                        </div>
-                        <div className="text-muted" style={{ fontSize: '0.75rem' }}>
-                          {new Date(payment.payment_date || payment.created_at).toLocaleTimeString()}
-                        </div>
-                      </td>
-                      <td>{getStatusBadge(payment.payment_status)}</td>
-                      <td>
-                        <button
-                          className="btn btn-sm btn-outline-primary"
-                          onClick={() => window.print()}
-                        >
-                          <i className="fas fa-download me-1"></i>
-                          Receipt
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* Payment Methods Info */}
-      <div className="card border-0 shadow-sm mt-4">
-        <div className="card-header bg-light">
-          <h6 className="mb-0">
-            <i className="fas fa-info-circle me-2"></i>
-            Payment Information
-          </h6>
-        </div>
-        <div className="card-body">
-          <div className="row">
+      {/* Info strip */}
+      <div className={s.card} style={{ marginTop: '1.5rem' }}>
+        <div className={s.cardBody}>
+          <div className="row g-4">
             <div className="col-md-6">
-              <h6 className="mb-3">Accepted Payment Methods</h6>
-              <ul className="list-unstyled">
-                <li className="mb-2">
-                  <i className="fas fa-check text-success me-2"></i>
-                  Debit/Credit Cards (Visa, Mastercard, Verve)
-                </li>
-                <li className="mb-2">
-                  <i className="fas fa-check text-success me-2"></i>
-                  Bank Transfer
-                </li>
-                <li className="mb-2">
-                  <i className="fas fa-check text-success me-2"></i>
-                  USSD Banking
-                </li>
-              </ul>
+              <div style={{ fontWeight: 600, marginBottom: '0.75rem', color: '#1e293b' }}>Accepted Payment Methods</div>
+              {['Debit/Credit Cards (Visa, Mastercard, Verve)', 'Bank Transfer', 'USSD Banking'].map((m) => (
+                <div key={m} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', marginBottom: '0.4rem' }}>
+                  <i className="fas fa-check-circle" style={{ color: '#059669' }} />{m}
+                </div>
+              ))}
             </div>
             <div className="col-md-6">
-              <h6 className="mb-3">Need Help?</h6>
-              <p className="small text-muted mb-2">
-                If you have any questions about payments or need a receipt, please contact our support team.
-              </p>
-              <Link href="/admin/dashboard/student-portal/help/contact" className="btn btn-sm btn-outline-primary">
-                <i className="fas fa-headset me-2"></i>
-                Contact Support
-              </Link>
+              <div style={{ fontWeight: 600, marginBottom: '0.75rem', color: '#1e293b' }}>Need Help?</div>
+              <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.75rem' }}>Questions about a payment or need a receipt? Contact our support team.</p>
+              <Link href="/admin/dashboard/student-portal/help" className={`${s.btnOutline} ${s.btnSm}`}><i className="fas fa-headset" />Contact Support</Link>
             </div>
           </div>
         </div>

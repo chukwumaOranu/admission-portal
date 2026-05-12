@@ -31,16 +31,16 @@ body {
 
 /* Custom sidebar styles - Only for admin layout */
 .sidebar {
-  width: 280px;
+  width: 260px;
   height: 100vh;
-  background: white;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+  background: #1e3a5f;
   position: fixed;
   left: 0;
   top: 0;
   z-index: 1050;
-  transition: all 0.3s ease;
+  transition: transform 0.25s ease;
   transform: translateX(-100%);
+  overflow: hidden;
 }
 
 .sidebar.show {
@@ -56,7 +56,7 @@ body {
 /* Custom admin content layout */
 @media (min-width: 768px) {
   main {
-    margin-left: 280px !important;
+    margin-left: 260px !important;
   }
 }
 

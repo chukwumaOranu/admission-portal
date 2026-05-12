@@ -1,393 +1,318 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
-import { useStudents, useUsers } from '@/hooks/useRedux';
+import { useStudents } from '@/hooks/useRedux';
 import { API_ENDPOINTS, apiService } from '@/services/api';
+import s from '@/styles/admin-portal.module.css';
+
+const fmtDt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
 export default function ViewStudentPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  const { students, loading: studentsLoading, fetchStudents, deleteStudent } = useStudents();
-  const { users, fetchUsers } = useUsers();
-  
-  const [student, setStudent] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const { hasPermission, loading: permLoading } = usePermissions();
+  const { students, loading: studentsLoading, deleteStudent } = useStudents();
+
+  const [student, setStudent]   = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError]       = useState('');
+  const [notice, setNotice]     = useState('');
+  const loadedRef = useRef(false);
 
   const fetchStudent = useCallback(async () => {
     try {
-      setLoading(true);
-      
-      // Try to find student in Redux store first
-      const foundStudent = students.find(s => s.id == params.id);
-      if (foundStudent) {
-        setStudent(foundStudent);
-        return;
-      }
-      
-      // If not found, fetch from API
-      const response = await apiService.get(API_ENDPOINTS.STUDENTS.GET_BY_ID(params.id));
-      setStudent(response.data);
-    } catch (err) {
-      console.error('Error fetching student:', err);
-      setError('Failed to fetch student details');
-    } finally {
-      setLoading(false);
-    }
+      setLoading(true); setError('');
+      const found = students.find(st => st.id === parseInt(params.id, 10));
+      if (found) { setStudent(found); return; }
+      const res = await apiService.get(API_ENDPOINTS.STUDENTS.GET_BY_ID(params.id));
+      setStudent(res.data);
+    } catch { setError('Failed to load student details'); }
+    finally { setLoading(false); }
   }, [students, params.id]);
 
+  useEffect(() => { loadedRef.current = false; }, [session?.user?.id]);
   useEffect(() => {
-    if (status === 'authenticated' && session?.accessToken && params.id) {
-      fetchStudent();
+    if (status === 'authenticated' && session?.user?.id && params.id && !loadedRef.current) {
+      loadedRef.current = true; fetchStudent();
     }
-  }, [status, session?.user?.id, session?.accessToken, params.id, fetchStudent]);
+  }, [status, session?.user?.id, params.id, fetchStudent]);
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Are you sure you want to delete ${student.first_name} ${student.last_name}? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      setDeleteLoading(true);
-      // Use Redux action instead of direct API call
-      await deleteStudent(params.id);
-      alert('Student deleted successfully!');
-      router.push('/admin/dashboard/students');
-    } catch (err) {
-      console.error('Error deleting student:', err);
-      alert('Failed to delete student');
-      setDeleteLoading(false);
-    }
+  const handleDelete = () => {
+    if (!window.confirm(`Delete ${student?.first_name} ${student?.last_name}? This cannot be undone.`)) return;
+    setDeleting(true);
+    deleteStudent(params.id);
+    setNotice('Student deleted.');
+    setTimeout(() => router.push('/admin/dashboard/students'), 1500);
   };
 
-  // Show loading while checking authentication
-  if (status === 'loading' || loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading || studentsLoading || loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Redirect if not authenticated
-  if (status === 'unauthenticated') {
-    window.location.href = '/login';
-    return null;
-  }
-
-  // Check permissions
   if (!hasPermission('student.read')) {
     return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Access Denied</h4>
-        <p>You don&apos;t have permission to view student details.</p>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to view student details.</div>
       </div>
     );
   }
 
-  if (error) {
+  if (error || !student) {
     return (
-      <div className="container-fluid">
-        <div className="alert alert-danger" role="alert">
-          <h4 className="alert-heading">Error</h4>
-          <p>{error}</p>
-          <Link href="/admin/dashboard/students" className="btn btn-primary">
-            Back to Students
-          </Link>
-        </div>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error || 'Student not found.'}</div>
+        <Link href="/admin/dashboard/students" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Students</Link>
       </div>
     );
-  }
-
-  if (!student) {
-    return null;
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-user-graduate text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#eff6ff', color: '#2563eb' }}><i className="fas fa-user-graduate" /></span>
             Student Details
-          </h2>
-          <p className="text-muted mb-0">{student.first_name} {student.last_name} - {student.student_id}</p>
+          </h1>
+          <p className={s.pageSub}>{student.first_name} {student.last_name}{student.student_id ? ` — ${student.student_id}` : ''}</p>
         </div>
-        <div className="d-flex gap-2">
-          <Link href="/admin/dashboard/students" className="btn btn-outline-secondary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to List
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/students" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Students
           </Link>
           {hasPermission('student.update') && (
-            <Link href={`/admin/dashboard/students/${params.id}/edit`} className="btn btn-primary-custom">
-              <i className="fas fa-edit me-2"></i>
-              Edit Student
+            <Link href={`/admin/dashboard/students/${params.id}/edit`} className={`${s.btn} ${s.btnPrimary}`}>
+              <i className="fas fa-edit" />Edit
             </Link>
           )}
           {hasPermission('student.delete') && (
-            <button
-              className="btn btn-danger"
-              onClick={handleDelete}
-              disabled={deleteLoading}
-            >
-              {deleteLoading ? (
-                <>
-                  <i className="fas fa-spinner fa-spin me-2"></i>
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <i className="fas fa-trash me-2"></i>
-                  Delete
-                </>
-              )}
+            <button onClick={handleDelete} className={`${s.btn} ${s.btnDanger}`} disabled={deleting}>
+              {deleting ? <><span className="spinner-border spinner-border-sm" />Deleting…</> : <><i className="fas fa-trash" />Delete</>}
             </button>
           )}
         </div>
       </div>
 
-      <div className="row">
-        {/* Main Content */}
-        <div className="col-lg-8">
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}</div>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+
+        {/* Main column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
           {/* Basic Information */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-primary text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-user me-2"></i>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <i className="fas fa-user" style={{ fontSize: '0.75rem' }} />
+                </span>
                 Basic Information
-              </h5>
+              </span>
+              <span className={`${s.badge} ${student.status === 'active' ? s.badgeActive : s.badgeInactive}`}>{student.status}</span>
             </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-4 mb-3">
-                  <label className="text-muted small">Student ID</label>
-                  <p className="mb-0"><strong className="text-primary">{student.student_id}</strong></p>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {[
+                { label: 'Student ID',   value: student.student_id ? <span className={`${s.badge} ${s.badgeInfo}`}>{student.student_id}</span> : '—' },
+                { label: 'First Name',   value: student.first_name },
+                { label: 'Last Name',    value: student.last_name },
+                ...(student.middle_name ? [{ label: 'Middle Name', value: student.middle_name }] : []),
+                { label: 'Gender',       value: student.gender ? student.gender.charAt(0).toUpperCase() + student.gender.slice(1) : 'Not specified' },
+                { label: 'Date of Birth', value: student.date_of_birth ? new Date(student.date_of_birth).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—' },
+                { label: 'School Level', value: student.schema_display_name || student.schema_name || '—' },
+              ].map(row => (
+                <div key={row.label} className={s.infoRow}>
+                  <span className={s.infoLabel}>{row.label}</span>
+                  <span className={s.infoValue}>{row.value}</span>
                 </div>
-                <div className="col-md-4 mb-3">
-                  <label className="text-muted small">School Level</label>
-                  <p className="mb-0">{student.schema_display_name || student.schema_name}</p>
-                </div>
-                <div className="col-md-4 mb-3">
-                  <label className="text-muted small">Status</label>
-                  <p className="mb-0">
-                    <span className={`badge bg-${student.status === 'active' ? 'success' : 'secondary'}`}>
-                      {student.status}
-                    </span>
-                  </p>
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">First Name</label>
-                  <p className="mb-0">{student.first_name}</p>
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Last Name</label>
-                  <p className="mb-0">{student.last_name}</p>
-                </div>
-                {student.middle_name && (
-                  <div className="col-md-6 mb-3">
-                    <label className="text-muted small">Middle Name</label>
-                    <p className="mb-0">{student.middle_name}</p>
-                  </div>
-                )}
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Gender</label>
-                  <p className="mb-0 text-capitalize">{student.gender || 'Not specified'}</p>
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Date of Birth</label>
-                  <p className="mb-0">{student.date_of_birth ? new Date(student.date_of_birth).toLocaleDateString() : 'Not specified'}</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
           {/* Contact Information */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-address-book me-2"></i>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                  <i className="fas fa-address-book" style={{ fontSize: '0.75rem' }} />
+                </span>
                 Contact Information
-              </h5>
+              </span>
             </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Email</label>
-                  <p className="mb-0">{student.email}</p>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {[
+                { label: 'Email',   value: student.email || 'Not provided' },
+                { label: 'Phone',   value: student.phone || 'Not provided' },
+                { label: 'Address', value: student.address || 'Not provided' },
+                { label: 'City',    value: student.city || '—' },
+                { label: 'State',   value: student.state || '—' },
+                { label: 'Country', value: student.country || '—' },
+              ].map(row => (
+                <div key={row.label} className={s.infoRow}>
+                  <span className={s.infoLabel}>{row.label}</span>
+                  <span className={s.infoValue}>{row.value}</span>
                 </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Phone</label>
-                  <p className="mb-0">{student.phone || 'Not provided'}</p>
-                </div>
-                <div className="col-12 mb-3">
-                  <label className="text-muted small">Address</label>
-                  <p className="mb-0">{student.address || 'Not provided'}</p>
-                </div>
-                <div className="col-md-4 mb-3">
-                  <label className="text-muted small">City</label>
-                  <p className="mb-0">{student.city || 'Not specified'}</p>
-                </div>
-                <div className="col-md-4 mb-3">
-                  <label className="text-muted small">State</label>
-                  <p className="mb-0">{student.state || 'Not specified'}</p>
-                </div>
-                <div className="col-md-4 mb-3">
-                  <label className="text-muted small">Country</label>
-                  <p className="mb-0">{student.country || 'Not specified'}</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Guardian Information */}
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-warning text-dark">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-user-friends me-2"></i>
-                Guardian/Emergency Contact
-              </h5>
+          {/* Guardian / Emergency Contact */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#fef3c7', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                  <i className="fas fa-user-friends" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Guardian / Emergency Contact
+              </span>
             </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Guardian Name</label>
-                  <p className="mb-0">{student.guardian_name || 'Not provided'}</p>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {[
+                { label: 'Guardian Name',     value: student.guardian_name || 'Not provided' },
+                { label: 'Relationship',      value: student.guardian_relationship || 'Not specified' },
+                { label: 'Guardian Phone',    value: student.guardian_phone || 'Not provided' },
+                { label: 'Guardian Email',    value: student.guardian_email || 'Not provided' },
+              ].map(row => (
+                <div key={row.label} className={s.infoRow}>
+                  <span className={s.infoLabel}>{row.label}</span>
+                  <span className={s.infoValue}>{row.value}</span>
                 </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Relationship</label>
-                  <p className="mb-0">{student.guardian_relationship || 'Not specified'}</p>
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Guardian Phone</label>
-                  <p className="mb-0">{student.guardian_phone || 'Not provided'}</p>
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="text-muted small">Guardian Email</label>
-                  <p className="mb-0">{student.guardian_email || 'Not provided'}</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Previous School Information */}
+          {/* Previous School (conditional) */}
           {(student.previous_school || student.graduation_year) && (
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-secondary text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-school me-2"></i>
-                  Previous School Information
-                </h5>
+            <div className={s.card} style={{ marginBottom: 0 }}>
+              <div className={s.cardHeader}>
+                <span className={s.cardTitle}>
+                  <span style={{ width: 28, height: 28, borderRadius: 6, background: '#f1f5f9', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                    <i className="fas fa-school" style={{ fontSize: '0.75rem' }} />
+                  </span>
+                  Previous School
+                </span>
               </div>
-              <div className="card-body">
-                <div className="row">
-                  <div className="col-md-8 mb-3">
-                    <label className="text-muted small">Previous School</label>
-                    <p className="mb-0">{student.previous_school || 'Not provided'}</p>
+              <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+                {[
+                  { label: 'School Name', value: student.previous_school || 'Not provided' },
+                  { label: 'Year Left',   value: student.graduation_year || '—' },
+                ].map(row => (
+                  <div key={row.label} className={s.infoRow}>
+                    <span className={s.infoLabel}>{row.label}</span>
+                    <span className={s.infoValue}>{row.value}</span>
                   </div>
-                  <div className="col-md-4 mb-3">
-                    <label className="text-muted small">Year Left</label>
-                    <p className="mb-0">{student.graduation_year || 'Not specified'}</p>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           )}
         </div>
 
         {/* Sidebar */}
-        <div className="col-lg-4">
-          {/* System Access Card */}
-          {student.user_id ? (
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-success text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-user-lock me-2"></i>
-                  System Access
-                </h5>
-              </div>
-              <div className="card-body">
-                <div className="alert alert-success mb-3">
-                  <i className="fas fa-check-circle me-2"></i>
-                  <strong>Account Active</strong>
-                  <p className="mb-0 small">This student has portal access</p>
-                </div>
-                <Link 
-                  href={`/admin/dashboard/users/${student.user_id}`}
-                  className="btn btn-outline-success btn-sm w-100 mb-2"
-                >
-                  <i className="fas fa-user-cog me-2"></i>
-                  View User Account
-                </Link>
-                <Link 
-                  href={`/admin/dashboard/users/roles`}
-                  className="btn btn-outline-primary btn-sm w-100"
-                >
-                  <i className="fas fa-shield-alt me-2"></i>
-                  Manage Role
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-header bg-secondary text-white">
-                <h5 className="card-title mb-0">
-                  <i className="fas fa-user-lock me-2"></i>
-                  System Access
-                </h5>
-              </div>
-              <div className="card-body">
-                <div className="alert alert-warning mb-3">
-                  <i className="fas fa-exclamation-triangle me-2"></i>
-                  <strong>No Account</strong>
-                  <p className="mb-0 small">This student doesn&apos;t have portal access yet</p>
-                </div>
-                {hasPermission('user.create') && (
-                  <button 
-                    className="btn btn-success btn-sm w-100"
-                    onClick={() => router.push(`/admin/dashboard/students/${params.id}/create-login`)}
-                  >
-                    <i className="fas fa-user-plus me-2"></i>
-                    Create Login Account
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Record Information */}
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-light">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Record Information
-              </h5>
+          {/* Quick Actions */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-bolt" style={{ color: '#d97706' }} />Quick Actions</span>
             </div>
-            <div className="card-body">
-              <div className="mb-3">
-                <label className="text-muted small">Created By</label>
-                <p className="mb-0">{student.created_by_username || 'System'}</p>
-              </div>
-              <div className="mb-3">
-                <label className="text-muted small">Created At</label>
-                <p className="mb-0">{new Date(student.created_at).toLocaleString()}</p>
-              </div>
-              <div className="mb-0">
-                <label className="text-muted small">Last Updated</label>
-                <p className="mb-0">{new Date(student.updated_at).toLocaleString()}</p>
-              </div>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {hasPermission('student.update') && (
+                <Link href={`/admin/dashboard/students/${params.id}/edit`} className={`${s.btn} ${s.btnPrimary}`} style={{ justifyContent: 'flex-start' }}>
+                  <i className="fas fa-edit" />Edit Student
+                </Link>
+              )}
+              {!student.user_id && hasPermission('user.create') && (
+                <Link href={`/admin/dashboard/students/${params.id}/create-login`} className={`${s.btn} ${s.btnGreen}`} style={{ justifyContent: 'flex-start' }}>
+                  <i className="fas fa-user-plus" />Create Login Account
+                </Link>
+              )}
+              {student.user_id && (
+                <Link href={`/admin/dashboard/users/${student.user_id}`} className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start' }}>
+                  <i className="fas fa-user-cog" />View User Account
+                </Link>
+              )}
+              {hasPermission('student.delete') && (
+                <button onClick={handleDelete} className={`${s.btn} ${s.btnDanger}`} style={{ justifyContent: 'flex-start' }} disabled={deleting}>
+                  <i className="fas fa-trash" />Delete Student
+                </button>
+              )}
+              <Link href="/admin/dashboard/students" className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start' }}>
+                <i className="fas fa-arrow-left" />Back to List
+              </Link>
             </div>
           </div>
+
+          {/* System Access */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#d1fae5', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                  <i className="fas fa-user-lock" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Portal Access
+              </span>
+              <span className={`${s.badge} ${student.user_id ? s.badgeActive : s.badgeInactive}`}>{student.user_id ? 'Active' : 'None'}</span>
+            </div>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {student.user_id ? (
+                <>
+                  <div className={`${s.alert} ${s.alertSuccess}`} style={{ marginBottom: '0.75rem' }}>
+                    <i className="fas fa-check-circle" />
+                    <span style={{ fontSize: '0.82rem' }}>This student has an active portal account.</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <Link href={`/admin/dashboard/users/${student.user_id}`} className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start', fontSize: '0.82rem' }}>
+                      <i className="fas fa-user-cog" />View Account
+                    </Link>
+                    {hasPermission('role.assign') && (
+                      <Link href="/admin/dashboard/users/roles" className={`${s.btn} ${s.btnOutline}`} style={{ justifyContent: 'flex-start', fontSize: '0.82rem' }}>
+                        <i className="fas fa-shield-alt" />Manage Role
+                      </Link>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className={s.emptyState} style={{ padding: '1.25rem 0' }}>
+                  <div className={s.emptyIcon} style={{ background: '#f1f5f9', color: '#9ca3af' }}><i className="fas fa-user-slash" /></div>
+                  <div className={s.emptyTitle}>No Portal Access</div>
+                  <p className={s.emptySub}>This student doesn&apos;t have a login account yet.</p>
+                  {hasPermission('user.create') && (
+                    <Link href={`/admin/dashboard/students/${params.id}/create-login`} className={`${s.btn} ${s.btnGreen}`}>
+                      <i className="fas fa-user-plus" />Create Account
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Record Info */}
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}><i className="fas fa-info-circle" style={{ color: '#0891b2' }} />Record Information</span>
+            </div>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              {[
+                { label: 'Created By', value: student.created_by_username || 'System' },
+                { label: 'Created',    value: fmtDt(student.created_at) },
+                { label: 'Updated',    value: fmtDt(student.updated_at) },
+              ].map(row => (
+                <div key={row.label} className={s.infoRow}>
+                  <span className={s.infoLabel}>{row.label}</span>
+                  <span className={s.infoValue}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

@@ -2,212 +2,143 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { usePermissionActions } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
+
+const RESOURCES = ['users', 'roles', 'permissions', 'applications', 'employees', 'payments', 'exams', 'settings', 'reports', 'files'];
+const ACTIONS   = ['create', 'read', 'update', 'delete', 'view', 'manage', 'approve', 'reject'];
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function AddPermissionPage() {
+  const router = useRouter();
   const { createPermission } = usePermissionActions();
-  const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    resource: '',
-    action: '',
-    is_active: true
-  });
 
-  const handleInputChange = (e) => {
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+  const [formData, setFormData] = useState({ name: '', description: '', resource: '', action: '', is_active: true });
+
+  const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    if (error) setError('');
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setIsLoading(true);
-    
-    try {
-      await createPermission(formData);
-      // Redirect to permissions list or show success message
-      window.location.href = '/admin/dashboard/permissions';
-    } catch (error) {
-      console.error('Error creating permission:', error);
-    } finally {
-      setIsLoading(false);
-    }
+    setSaving(true);
+    createPermission(formData);
+    router.push('/admin/dashboard/permissions');
+    setSaving(false);
   };
-
-  const resources = [
-    'users', 'roles', 'permissions', 'applications', 'employees', 
-    'payments', 'exams', 'settings', 'reports', 'files'
-  ];
-
-  const actions = [
-    'create', 'read', 'update', 'delete', 'view', 'manage', 'approve', 'reject'
-  ];
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      {/* Header */}
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-key text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#fef3c7', color: '#d97706' }}><i className="fas fa-key" /></span>
             Add New Permission
-          </h2>
-          <p className="text-muted mb-0">Create a new system permission</p>
+          </h1>
+          <p className={s.pageSub}>Create a new system permission</p>
         </div>
-        <Link href="/admin/dashboard/permissions" className="btn btn-outline-secondary">
-          <i className="fas fa-arrow-left me-2"></i>
-          Back to Permissions
-        </Link>
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/permissions" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Back to Permissions
+          </Link>
+        </div>
       </div>
 
-      <div className="row">
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-primary text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-key me-2"></i>
-                Permission Information
-              </h5>
-            </div>
-            <div className="card-body">
-              <form onSubmit={handleSubmit}>
-                <div className="mb-3">
-                  <label className="form-label">Permission Name *</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    placeholder="e.g., users.create, applications.approve"
-                    required
-                  />
-                  <div className="form-text">
-                    Format: resource.action (e.g., users.create, applications.read)
-                  </div>
-                </div>
+      {error && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
 
-                <div className="mb-3">
-                  <label className="form-label">Description *</label>
-                  <textarea
-                    className="form-control"
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    rows="3"
-                    placeholder="Describe what this permission allows users to do"
-                    required
-                  ></textarea>
-                </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Resource *</label>
-                    <select
-                      className="form-select"
-                      name="resource"
-                      value={formData.resource}
-                      onChange={handleInputChange}
-                      required
-                    >
-                      <option value="">Select Resource</option>
-                      {resources.map(resource => (
-                        <option key={resource} value={resource}>
-                          {resource.charAt(0).toUpperCase() + resource.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label">Action *</label>
-                    <select
-                      className="form-select"
-                      name="action"
-                      value={formData.action}
-                      onChange={handleInputChange}
-                      required
-                    >
-                      <option value="">Select Action</option>
-                      {actions.map(action => (
-                        <option key={action} value={action}>
-                          {action.charAt(0).toUpperCase() + action.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+        {/* Form */}
+        <div className={s.card} style={{ marginBottom: 0 }}>
+          <div className={s.cardHeader}>
+            <span className={s.cardTitle}>
+              <span style={{ width: 28, height: 28, borderRadius: 6, background: '#fef3c7', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                <i className="fas fa-key" style={{ fontSize: '0.75rem' }} />
+              </span>
+              Permission Information
+            </span>
+          </div>
+          <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+            <form onSubmit={handleSubmit}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Permission Name <span style={{ color: '#dc2626' }}>*</span></label>
+                <input type="text" className={s.formInput} name="name" value={formData.name} onChange={handleChange} placeholder="e.g., users.create, applications.approve" required />
+                <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>Format: resource.action</p>
+              </div>
 
-                <div className="mb-3">
-                  <div className="form-check">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      name="is_active"
-                      checked={formData.is_active}
-                      onChange={handleInputChange}
-                    />
-                    <label className="form-check-label">
-                      Active Permission
-                    </label>
-                  </div>
-                </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Description <span style={{ color: '#dc2626' }}>*</span></label>
+                <textarea className={s.formInput} name="description" value={formData.description} onChange={handleChange} rows={3} placeholder="Describe what this permission allows users to do" required style={{ resize: 'vertical' }} />
+              </div>
 
-                <div className="d-flex gap-2">
-                  <button
-                    type="submit"
-                    className="btn btn-primary-custom"
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <>
-                        <i className="fas fa-spinner fa-spin me-2"></i>
-                        Creating...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-save me-2"></i>
-                        Create Permission
-                      </>
-                    )}
-                  </button>
-                  <Link href="/admin/dashboard/permissions" className="btn btn-outline-secondary">
-                    <i className="fas fa-times me-2"></i>
-                    Cancel
-                  </Link>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label className={s.formLabel}>Resource <span style={{ color: '#dc2626' }}>*</span></label>
+                  <select className={s.formSelect} name="resource" value={formData.resource} onChange={handleChange} required>
+                    <option value="">Select Resource</option>
+                    {RESOURCES.map(r => <option key={r} value={r}>{cap(r)}</option>)}
+                  </select>
                 </div>
-              </form>
-            </div>
+                <div>
+                  <label className={s.formLabel}>Action <span style={{ color: '#dc2626' }}>*</span></label>
+                  <select className={s.formSelect} name="action" value={formData.action} onChange={handleChange} required>
+                    <option value="">Select Action</option>
+                    {ACTIONS.map(a => <option key={a} value={a}>{cap(a)}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151', cursor: 'pointer' }}>
+                  <input type="checkbox" name="is_active" checked={formData.is_active} onChange={handleChange} style={{ width: 15, height: 15, accentColor: '#d97706' }} />
+                  Active Permission
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
+                  {saving ? <><span className="spinner-border spinner-border-sm" />Creating…</> : <><i className="fas fa-save" />Create Permission</>}
+                </button>
+                <Link href="/admin/dashboard/permissions" className={`${s.btn} ${s.btnOutline}`}>
+                  <i className="fas fa-times" />Cancel
+                </Link>
+              </div>
+            </form>
           </div>
         </div>
 
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-info text-white">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-info-circle me-2"></i>
-                Help & Tips
-              </h5>
+        {/* Help sidebar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardHeader}>
+              <span className={s.cardTitle}>
+                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                  <i className="fas fa-lightbulb" style={{ fontSize: '0.75rem' }} />
+                </span>
+                Tips
+              </span>
             </div>
-            <div className="card-body">
-              <div className="alert alert-info">
-                <h6><i className="fas fa-lightbulb me-2"></i>Tips:</h6>
-                <ul className="mb-0">
-                  <li>Use consistent naming convention</li>
-                  <li>Be specific about what the permission allows</li>
-                  <li>Consider security implications</li>
-                  <li>Test permissions after creation</li>
-                </ul>
-              </div>
-              
-              <div className="alert alert-warning">
-                <h6><i className="fas fa-exclamation-triangle me-2"></i>Security:</h6>
-                <p className="mb-0">
-                  Permissions control access to system features. Make sure to assign them carefully to maintain security.
-                </p>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              <ul style={{ fontSize: '0.82rem', color: '#374151', paddingLeft: '1.1rem', lineHeight: 1.9, margin: 0 }}>
+                <li>Use consistent naming convention</li>
+                <li>Be specific about what the permission allows</li>
+                <li>Consider security implications</li>
+                <li>Test permissions after creation</li>
+              </ul>
+            </div>
+          </div>
+          <div className={s.card} style={{ marginBottom: 0 }}>
+            <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+              <div className={`${s.alert} ${s.alertDanger}`} style={{ marginBottom: 0 }}>
+                <i className="fas fa-shield-alt" />
+                <span style={{ fontSize: '0.82rem' }}>Permissions control access to system features. Assign them carefully to maintain security.</span>
               </div>
             </div>
           </div>

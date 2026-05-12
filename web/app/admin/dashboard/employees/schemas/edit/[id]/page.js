@@ -1,580 +1,303 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useEmployees, useEmployeeSchemaActions } from '@/hooks/useRedux';
+import s from '@/styles/admin-portal.module.css';
+
+const FIELD_TYPES = ['text', 'email', 'number', 'date', 'datetime', 'time', 'textarea', 'select', 'checkbox', 'radio', 'file', 'url', 'phone'];
 
 export default function EditEmployeeSchemaPage() {
   const params = useParams();
   const router = useRouter();
   const { status } = useSession();
-  const { hasPermission } = usePermissions();
-  
-  // Redux state
-  const { 
-    schemas, 
-    currentSchema, 
-    schemaFields, 
-    loading, 
-    error, 
-    fetchEmployeeSchemas,
-    getEmployeeSchemaById,
-    getEmployeeSchemaFields 
-  } = useEmployees();
-  
-  const { 
-    updateEmployeeSchema, 
-    deleteEmployeeSchema,
-    addEmployeeSchemaField,
-    updateEmployeeSchemaField,
-    deleteEmployeeSchemaField 
-  } = useEmployeeSchemaActions();
-  
-  const [formData, setFormData] = useState({
-    schema_name: '',
-    display_name: '',
-    description: '',
-    is_active: true
-  });
-  
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-  const [submitSuccess, setSubmitSuccess] = useState(false);
-  
-  const [showAddFieldModal, setShowAddFieldModal] = useState(false);
-  const [editingField, setEditingField] = useState(null);
-  const [fieldFormData, setFieldFormData] = useState({
-    field_name: '',
-    field_label: '',
-    field_type: 'text',
-    field_options: '',
-    is_required: false,
-    validation_rules: '',
-    display_order: 0
+  const { hasPermission, loading: permLoading } = usePermissions();
+
+  const { currentSchema, schemaFields, loading, fetchEmployeeSchemas, getEmployeeSchemaById, getEmployeeSchemaFields } = useEmployees();
+  const { updateEmployeeSchema, deleteEmployeeSchema, addEmployeeSchemaField, updateEmployeeSchemaField, deleteEmployeeSchemaField } = useEmployeeSchemaActions();
+
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
+  const [notice, setNotice]       = useState('');
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [editingField, setEditingField]     = useState(null);
+  const loadedRef = useRef(false);
+
+  const [formData, setFormData] = useState({ schema_name: '', display_name: '', description: '', is_active: true });
+  const [fieldForm, setFieldForm] = useState({
+    field_name: '', field_label: '', field_type: 'text', field_options: '',
+    is_required: false, validation_rules: '', display_order: 0,
   });
 
   useEffect(() => {
-    if (status === 'authenticated') {
-      fetchEmployeeSchemas();
+    if (status === 'authenticated' && !loadedRef.current) {
+      loadedRef.current = true; fetchEmployeeSchemas();
     }
   }, [status, fetchEmployeeSchemas]);
 
   useEffect(() => {
-    if (params.id) {
-      getEmployeeSchemaById(params.id);
-      getEmployeeSchemaFields(params.id);
-    }
+    if (params.id) { getEmployeeSchemaById(params.id); getEmployeeSchemaFields(params.id); }
   }, [params.id, getEmployeeSchemaById, getEmployeeSchemaFields]);
 
   useEffect(() => {
     if (currentSchema) {
       setFormData({
-        schema_name: currentSchema.schema_name || '',
+        schema_name:  currentSchema.schema_name || '',
         display_name: currentSchema.display_name || '',
-        description: currentSchema.description || '',
-        is_active: currentSchema.is_active !== undefined ? currentSchema.is_active : true
+        description:  currentSchema.description || '',
+        is_active:    currentSchema.is_active !== undefined ? currentSchema.is_active : true,
       });
     }
   }, [currentSchema]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setSubmitError('');
-    
-    try {
-      await updateEmployeeSchema(params.id, formData);
-      setSubmitSuccess(true);
-      setTimeout(() => {
-        router.push('/admin/dashboard/employees/schemas');
-      }, 1500);
-    } catch (error) {
-      console.error('Error updating schema:', error);
-      setSubmitError('Failed to update schema. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    setSaving(true); setError(''); setNotice('');
+    updateEmployeeSchema(params.id, formData);
+    setNotice('Schema updated successfully!');
+    setTimeout(() => router.push('/admin/dashboard/employees/schemas'), 1500);
+    setSaving(false);
   };
 
-  const handleDeleteSchema = async () => {
-    if (window.confirm('Are you sure you want to delete this schema? This action cannot be undone.')) {
-      try {
-        await deleteEmployeeSchema(params.id);
-        router.push('/admin/dashboard/employees/schemas');
-      } catch (error) {
-        console.error('Error deleting schema:', error);
-        setSubmitError('Failed to delete schema. Please try again.');
-      }
-    }
+  const handleDeleteSchema = () => {
+    if (!window.confirm('Delete this schema? This cannot be undone.')) return;
+    deleteEmployeeSchema(params.id);
+    router.push('/admin/dashboard/employees/schemas');
   };
 
-  const handleAddField = () => {
-    setFieldFormData({
-      field_name: '',
-      field_label: '',
-      field_type: 'text',
-      field_options: '',
-      is_required: false,
-      validation_rules: '',
-      display_order: schemaFields.length
+  const openAddField = () => {
+    setFieldForm({ field_name: '', field_label: '', field_type: 'text', field_options: '', is_required: false, validation_rules: '', display_order: schemaFields.length });
+    setEditingField(null); setShowFieldModal(true);
+  };
+
+  const openEditField = (field) => {
+    setFieldForm({
+      field_name:        field.field_name,
+      field_label:       field.field_label,
+      field_type:        field.field_type,
+      field_options:     field.field_options ? JSON.stringify(field.field_options) : '',
+      is_required:       field.is_required,
+      validation_rules:  field.validation_rules ? JSON.stringify(field.validation_rules) : '',
+      display_order:     field.display_order,
     });
-    setEditingField(null);
-    setShowAddFieldModal(true);
+    setEditingField(field); setShowFieldModal(true);
   };
 
-  const handleEditField = (field) => {
-    setFieldFormData({
-      field_name: field.field_name,
-      field_label: field.field_label,
-      field_type: field.field_type,
-      field_options: field.field_options ? JSON.stringify(field.field_options) : '',
-      is_required: field.is_required,
-      validation_rules: field.validation_rules ? JSON.stringify(field.validation_rules) : '',
-      display_order: field.display_order
-    });
-    setEditingField(field);
-    setShowAddFieldModal(true);
-  };
-
-  const handleFieldSubmit = async (e) => {
+  const handleFieldSubmit = (e) => {
     e.preventDefault();
-    
     try {
       const fieldData = {
-        ...fieldFormData,
-        field_options: fieldFormData.field_options ? JSON.parse(fieldFormData.field_options) : null,
-        validation_rules: fieldFormData.validation_rules ? JSON.parse(fieldFormData.validation_rules) : null
+        ...fieldForm,
+        field_options:    fieldForm.field_options    ? JSON.parse(fieldForm.field_options)    : null,
+        validation_rules: fieldForm.validation_rules ? JSON.parse(fieldForm.validation_rules) : null,
       };
-
-      if (editingField) {
-        await updateEmployeeSchemaField(params.id, editingField.id, fieldData);
-      } else {
-        await addEmployeeSchemaField(params.id, fieldData);
-      }
-      
-      setShowAddFieldModal(false);
-      getEmployeeSchemaFields(params.id); // Refresh fields
-    } catch (error) {
-      console.error('Error saving field:', error);
-      setSubmitError('Failed to save field. Please try again.');
-    }
+      if (editingField) updateEmployeeSchemaField(params.id, editingField.id, fieldData);
+      else              addEmployeeSchemaField(params.id, fieldData);
+      setShowFieldModal(false); getEmployeeSchemaFields(params.id);
+    } catch { setError('Invalid JSON in field options or validation rules.'); }
   };
 
-  const handleDeleteField = async (fieldId) => {
-    if (window.confirm('Are you sure you want to delete this field?')) {
-      try {
-        await deleteEmployeeSchemaField(params.id, fieldId);
-        getEmployeeSchemaFields(params.id); // Refresh fields
-      } catch (error) {
-        console.error('Error deleting field:', error);
-        setSubmitError('Failed to delete field. Please try again.');
-      }
-    }
+  const handleDeleteField = (fieldId) => {
+    if (!window.confirm('Delete this field?')) return;
+    deleteEmployeeSchemaField(params.id, fieldId);
+    getEmployeeSchemaFields(params.id);
   };
 
-  const fieldTypes = [
-    'text', 'email', 'number', 'date', 'datetime', 'time', 
-    'textarea', 'select', 'checkbox', 'radio', 'file', 'url', 'phone'
-  ];
-
-  // Show loading while checking authentication
-  if (status === 'loading') {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
+  if (status === 'loading' || permLoading || loading) {
+    return <div className={s.spinnerWrap}><div className="spinner-border" style={{ color: '#1e3a5f' }} role="status" /></div>;
   }
 
-  // Show error if not authenticated
-  if (status === 'unauthenticated') {
-    return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Authentication Required</h4>
-        <p>You need to be logged in to access this page.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/login" className="btn btn-primary">Go to Login</Link>
-        </p>
-      </div>
-    );
-  }
-
-  // Check permissions
   if (!hasPermission('employee_schema.update')) {
     return (
-      <div className="alert alert-danger" role="alert">
-        <h4 className="alert-heading">Access Denied</h4>
-        <p>You don&apos;t have permission to edit employee schemas.</p>
-        <hr />
-        <p className="mb-0">
-          <Link href="/admin/dashboard/employees/schemas" className="btn btn-primary">Back to Schemas</Link>
-        </p>
+      <div style={{ padding: '1.5rem' }}>
+        <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-lock" />You don&apos;t have permission to edit employee schemas.</div>
+        <Link href="/admin/dashboard/employees/schemas" className={`${s.btn} ${s.btnOutline}`} style={{ marginTop: '0.75rem' }}><i className="fas fa-arrow-left" />Back to Schemas</Link>
       </div>
     );
   }
 
   return (
-    <div className="container-fluid">
-      {/* Page Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div style={{ background: '#f0f4f8', minHeight: '100vh', padding: '1.5rem' }}>
+
+      <div className={s.pageHeader}>
         <div>
-          <h2 className="h4 mb-1">
-            <i className="fas fa-edit text-primary-custom me-2"></i>
+          <h1 className={s.pageTitle}>
+            <span className={s.iconBox} style={{ background: '#e0f2fe', color: '#0891b2' }}><i className="fas fa-database" /></span>
             Edit Employee Schema
-          </h2>
-          <p className="text-muted mb-0">Modify schema information and manage custom fields</p>
+          </h1>
+          <p className={s.pageSub}>Modify schema information and manage custom fields</p>
         </div>
-        <div className="d-flex gap-2">
-          <Link href="/admin/dashboard/employees/schemas" className="btn btn-outline-secondary">
-            <i className="fas fa-arrow-left me-2"></i>
-            Back to Schemas
+        <div className={s.pageActions}>
+          <Link href="/admin/dashboard/employees/schemas" className={`${s.btn} ${s.btnOutline}`}>
+            <i className="fas fa-arrow-left" />Schemas
           </Link>
-          <button 
-            className="btn btn-outline-danger"
-            onClick={handleDeleteSchema}
-          >
-            <i className="fas fa-trash me-2"></i>
-            Delete Schema
-          </button>
+          {hasPermission('employee_schema.delete') && (
+            <button onClick={handleDeleteSchema} className={`${s.btn} ${s.btnDanger}`}>
+              <i className="fas fa-trash" />Delete
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Error Message */}
-      {submitError && (
-        <div className="alert alert-danger" role="alert">
-          {submitError}
-        </div>
-      )}
+      {error  && <div className={`${s.alert} ${s.alertDanger}`}><i className="fas fa-exclamation-triangle" />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><i className="fas fa-times" /></button></div>}
+      {notice && <div className={`${s.alert} ${s.alertSuccess}`}><i className="fas fa-check-circle" />{notice}</div>}
 
-      {/* Success Message */}
-      {submitSuccess && (
-        <div className="alert alert-success" role="alert">
-          Schema updated successfully! Redirecting...
-        </div>
-      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
 
-      <div className="row">
-        {/* Schema Information */}
-        <div className="col-lg-6">
-          <div className="card card-custom">
-            <div className="card-header">
-              <h5 className="card-title mb-0">Schema Information</h5>
-            </div>
-            <div className="card-body">
-              <form onSubmit={handleSubmit}>
-                <div className="row">
-                  {/* Schema Name */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="schema_name" className="form-label">
-                      Schema Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="schema_name"
-                      name="schema_name"
-                      value={formData.schema_name}
-                      onChange={handleChange}
-                      required
-                      disabled={isSubmitting}
-                    />
-                  </div>
-
-                  {/* Display Name */}
-                  <div className="col-md-6 mb-3">
-                    <label htmlFor="display_name" className="form-label">
-                      Display Name <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      id="display_name"
-                      name="display_name"
-                      value={formData.display_name}
-                      onChange={handleChange}
-                      required
-                      disabled={isSubmitting}
-                    />
-                  </div>
-
-                  {/* Description */}
-                  <div className="col-12 mb-3">
-                    <label htmlFor="description" className="form-label">Description</label>
-                    <textarea
-                      className="form-control"
-                      id="description"
-                      name="description"
-                      value={formData.description}
-                      onChange={handleChange}
-                      rows="3"
-                      disabled={isSubmitting}
-                    />
-                  </div>
-
-                  {/* Active Status */}
-                  <div className="col-12 mb-3">
-                    <div className="form-check">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        id="is_active"
-                        name="is_active"
-                        checked={formData.is_active}
-                        onChange={handleChange}
-                        disabled={isSubmitting}
-                      />
-                      <label className="form-check-label" htmlFor="is_active">
-                        Active Schema
-                      </label>
-                    </div>
-                  </div>
+        {/* Schema Info Form */}
+        <div className={s.card} style={{ marginBottom: 0 }}>
+          <div className={s.cardHeader}>
+            <span className={s.cardTitle}>
+              <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                <i className="fas fa-info-circle" style={{ fontSize: '0.75rem' }} />
+              </span>
+              Schema Information
+            </span>
+          </div>
+          <div className={s.cardBody} style={{ padding: '1.25rem' }}>
+            <form onSubmit={handleSubmit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label className={s.formLabel}>Schema Name <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input type="text" className={s.formInput} name="schema_name" value={formData.schema_name} onChange={handleChange} required disabled={saving} />
                 </div>
-
-                {/* Submit Button */}
-                <div className="d-flex gap-2 mt-4">
-                  <button
-                    type="submit"
-                    className="btn btn-primary-custom"
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <i className="fas fa-spinner fa-spin me-2"></i>
-                        Updating...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-save me-2"></i>
-                        Update Schema
-                      </>
-                    )}
-                  </button>
+                <div>
+                  <label className={s.formLabel}>Display Name <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input type="text" className={s.formInput} name="display_name" value={formData.display_name} onChange={handleChange} required disabled={saving} />
                 </div>
-              </form>
-            </div>
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label className={s.formLabel}>Description</label>
+                <textarea className={s.formInput} name="description" value={formData.description} onChange={handleChange} rows={3} style={{ resize: 'vertical' }} disabled={saving} />
+              </div>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151', cursor: 'pointer' }}>
+                  <input type="checkbox" name="is_active" checked={formData.is_active} onChange={handleChange} style={{ width: 15, height: 15, accentColor: '#059669' }} disabled={saving} />
+                  Active Schema
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={saving}>
+                  {saving ? <><span className="spinner-border spinner-border-sm" />Updating…</> : <><i className="fas fa-save" />Update Schema</>}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
 
-        {/* Schema Fields */}
-        <div className="col-lg-6">
-          <div className="card card-custom">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h5 className="card-title mb-0">Custom Fields</h5>
-              <button 
-                className="btn btn-sm btn-primary-custom"
-                onClick={handleAddField}
-              >
-                <i className="fas fa-plus me-1"></i>
-                Add Field
+        {/* Custom Fields */}
+        <div className={s.card} style={{ marginBottom: 0 }}>
+          <div className={s.cardHeader}>
+            <span className={s.cardTitle}>
+              <span style={{ width: 28, height: 28, borderRadius: 6, background: '#e0f2fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2' }}>
+                <i className="fas fa-list-ul" style={{ fontSize: '0.75rem' }} />
+              </span>
+              Custom Fields
+            </span>
+            <button onClick={openAddField} className={`${s.btn} ${s.btnPrimary} ${s.btnSm}`}>
+              <i className="fas fa-plus" />Add Field
+            </button>
+          </div>
+          <div className={s.cardBody} style={{ padding: '1rem 1.25rem' }}>
+            {schemaFields.length === 0 ? (
+              <div className={s.emptyState} style={{ padding: '1.5rem 0' }}>
+                <div className={s.emptyIcon}><i className="fas fa-list-ul" /></div>
+                <div className={s.emptyTitle}>No Custom Fields</div>
+                <p className={s.emptySub}>Add fields to capture additional employee information.</p>
+                <button onClick={openAddField} className={`${s.btn} ${s.btnPrimary}`}><i className="fas fa-plus" />Add First Field</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {schemaFields.map(field => (
+                  <div key={field.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0.75rem', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <strong style={{ fontSize: '0.875rem', color: '#1e293b' }}>{field.field_label}</strong>
+                        <span className={`${s.badge} ${s.badgeInfo}`}>{field.field_type}</span>
+                        {field.is_required && <span className={`${s.badge} ${s.badgePending}`}>Required</span>}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.1rem' }}>{field.field_name}</div>
+                    </div>
+                    <div className={s.actionBtns}>
+                      <button onClick={() => openEditField(field)} className={s.btnIcon} title="Edit"><i className="fas fa-edit" /></button>
+                      <button onClick={() => handleDeleteField(field.id)} className={s.btnIconDanger} title="Delete"><i className="fas fa-trash" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      {/* Field Modal Overlay */}
+      {showFieldModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#1e3a5f' }}>
+                {editingField ? 'Edit Field' : 'Add New Field'}
+              </h3>
+              <button onClick={() => setShowFieldModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#9ca3af', padding: '0.25rem' }}>
+                <i className="fas fa-times" />
               </button>
             </div>
-            <div className="card-body">
-              {loading ? (
-                <div className="text-center py-3">
-                  <div className="spinner-border spinner-border-sm text-primary" role="status">
-                    <span className="visually-hidden">Loading...</span>
+            <form onSubmit={handleFieldSubmit}>
+              <div style={{ padding: '1.25rem 1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                  <div>
+                    <label className={s.formLabel}>Field Name <span style={{ color: '#dc2626' }}>*</span></label>
+                    <input type="text" className={s.formInput} value={fieldForm.field_name} onChange={e => setFieldForm(p => ({ ...p, field_name: e.target.value }))} required placeholder="e.g., emergency_contact" />
+                  </div>
+                  <div>
+                    <label className={s.formLabel}>Field Label <span style={{ color: '#dc2626' }}>*</span></label>
+                    <input type="text" className={s.formInput} value={fieldForm.field_label} onChange={e => setFieldForm(p => ({ ...p, field_label: e.target.value }))} required placeholder="e.g., Emergency Contact" />
                   </div>
                 </div>
-              ) : schemaFields.length === 0 ? (
-                <div className="text-center py-4 text-muted">
-                  <i className="fas fa-list-ul fs-1 mb-3"></i>
-                  <p>No custom fields defined</p>
-                  <p className="small">Add fields to capture additional employee information</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                  <div>
+                    <label className={s.formLabel}>Field Type <span style={{ color: '#dc2626' }}>*</span></label>
+                    <select className={s.formSelect} value={fieldForm.field_type} onChange={e => setFieldForm(p => ({ ...p, field_type: e.target.value }))} required>
+                      {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={s.formLabel}>Display Order</label>
+                    <input type="number" className={s.formInput} value={fieldForm.display_order} onChange={e => setFieldForm(p => ({ ...p, display_order: parseInt(e.target.value) }))} min="0" />
+                  </div>
                 </div>
-              ) : (
-                <div className="list-group list-group-flush">
-                  {schemaFields.map((field) => (
-                    <div key={field.id} className="list-group-item d-flex justify-content-between align-items-center px-0">
-                      <div className="flex-grow-1">
-                        <div className="d-flex align-items-center mb-1">
-                          <strong>{field.field_label}</strong>
-                          <span className="badge bg-secondary ms-2">{field.field_type}</span>
-                          {field.is_required && <span className="badge bg-danger ms-1">Required</span>}
-                        </div>
-                        <small className="text-muted">{field.field_name}</small>
-                      </div>
-                      <div className="d-flex gap-1">
-                        <button 
-                          className="btn btn-sm btn-outline-primary"
-                          onClick={() => handleEditField(field)}
-                        >
-                          <i className="fas fa-edit"></i>
-                        </button>
-                        <button 
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => handleDeleteField(field.id)}
-                        >
-                          <i className="fas fa-trash"></i>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                <div style={{ marginBottom: '1rem' }}>
+                  <label className={s.formLabel}>Field Options (JSON)</label>
+                  <textarea className={s.formInput} value={fieldForm.field_options} onChange={e => setFieldForm(p => ({ ...p, field_options: e.target.value }))} rows={3} placeholder={'{"options": ["Option 1", "Option 2"]}'} style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.82rem' }} />
+                  <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0.2rem 0 0' }}>For select, radio, checkbox fields</p>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Add/Edit Field Modal */}
-      {showAddFieldModal && (
-        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  {editingField ? 'Edit Field' : 'Add New Field'}
-                </h5>
-                <button 
-                  type="button" 
-                  className="btn-close" 
-                  onClick={() => setShowAddFieldModal(false)}
-                ></button>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label className={s.formLabel}>Validation Rules (JSON)</label>
+                  <textarea className={s.formInput} value={fieldForm.validation_rules} onChange={e => setFieldForm(p => ({ ...p, validation_rules: e.target.value }))} rows={2} placeholder={'{"min": 0, "max": 100}'} style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.82rem' }} />
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={fieldForm.is_required} onChange={e => setFieldForm(p => ({ ...p, is_required: e.target.checked }))} style={{ width: 15, height: 15, accentColor: '#2563eb' }} />
+                  Required Field
+                </label>
               </div>
-              <form onSubmit={handleFieldSubmit}>
-                <div className="modal-body">
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="field_name" className="form-label">
-                        Field Name <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        id="field_name"
-                        name="field_name"
-                        value={fieldFormData.field_name}
-                        onChange={(e) => setFieldFormData(prev => ({ ...prev, field_name: e.target.value }))}
-                        required
-                        placeholder="e.g., emergency_contact"
-                      />
-                    </div>
-
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="field_label" className="form-label">
-                        Field Label <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        id="field_label"
-                        name="field_label"
-                        value={fieldFormData.field_label}
-                        onChange={(e) => setFieldFormData(prev => ({ ...prev, field_label: e.target.value }))}
-                        required
-                        placeholder="e.g., Emergency Contact"
-                      />
-                    </div>
-
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="field_type" className="form-label">
-                        Field Type <span className="text-danger">*</span>
-                      </label>
-                      <select
-                        className="form-select"
-                        id="field_type"
-                        name="field_type"
-                        value={fieldFormData.field_type}
-                        onChange={(e) => setFieldFormData(prev => ({ ...prev, field_type: e.target.value }))}
-                        required
-                      >
-                        {fieldTypes.map(type => (
-                          <option key={type} value={type}>{type}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="display_order" className="form-label">
-                        Display Order
-                      </label>
-                      <input
-                        type="number"
-                        className="form-control"
-                        id="display_order"
-                        name="display_order"
-                        value={fieldFormData.display_order}
-                        onChange={(e) => setFieldFormData(prev => ({ ...prev, display_order: parseInt(e.target.value) }))}
-                        min="0"
-                      />
-                    </div>
-
-                    <div className="col-12 mb-3">
-                      <label htmlFor="field_options" className="form-label">
-                        Field Options (JSON)
-                      </label>
-                      <textarea
-                        className="form-control"
-                        id="field_options"
-                        name="field_options"
-                        value={fieldFormData.field_options}
-                        onChange={(e) => setFieldFormData(prev => ({ ...prev, field_options: e.target.value }))}
-                        rows="3"
-                        placeholder='{"options": ["Option 1", "Option 2"]}'
-                      />
-                      <div className="form-text">For select, radio, checkbox fields</div>
-                    </div>
-
-                    <div className="col-12 mb-3">
-                      <label htmlFor="validation_rules" className="form-label">
-                        Validation Rules (JSON)
-                      </label>
-                      <textarea
-                        className="form-control"
-                        id="validation_rules"
-                        name="validation_rules"
-                        value={fieldFormData.validation_rules}
-                        onChange={(e) => setFieldFormData(prev => ({ ...prev, validation_rules: e.target.value }))}
-                        rows="3"
-                        placeholder='{"min": 0, "max": 100}'
-                      />
-                    </div>
-
-                    <div className="col-12 mb-3">
-                      <div className="form-check">
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          id="is_required"
-                          name="is_required"
-                          checked={fieldFormData.is_required}
-                          onChange={(e) => setFieldFormData(prev => ({ ...prev, is_required: e.target.checked }))}
-                        />
-                        <label className="form-check-label" htmlFor="is_required">
-                          Required Field
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button 
-                    type="button" 
-                    className="btn btn-secondary" 
-                    onClick={() => setShowAddFieldModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn btn-primary-custom">
-                    {editingField ? 'Update Field' : 'Add Field'}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0' }}>
+                <button type="button" className={`${s.btn} ${s.btnOutline}`} onClick={() => setShowFieldModal(false)}>
+                  <i className="fas fa-times" />Cancel
+                </button>
+                <button type="submit" className={`${s.btn} ${s.btnPrimary}`}>
+                  <i className={`fas ${editingField ? 'fa-save' : 'fa-plus'}`} />{editingField ? 'Update Field' : 'Add Field'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
